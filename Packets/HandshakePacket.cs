@@ -1,11 +1,5 @@
 ﻿namespace littlecat.Packets;
 
-public enum HandshakeNextState
-{
-    Status = 1,
-    Login = 2
-}
-
 public class HandshakePacket(int protocolVersion, string serverAddress, int serverPort, int nextState) : Packet(ServerboundPacketId.Handshake) 
 {
     public readonly int ProtocolVersion = protocolVersion;

@@ -96,7 +96,7 @@ public class Server
                 case StatusRequestPacket:
                 {
                     ThreadLogger.Log("Status request packet");
-
+                    
                     JObject response = new()
                     {
                         ["version"] = new JObject
@@ -108,7 +108,14 @@ public class Server
                         {
                             ["max"] = _config.MaxPlayers,
                             ["online"] = 0,
-                            // ["sample"] = new JArray()
+                            // ["sample"] = new JArray
+                            // {
+                            //     new JObject
+                            //     {
+                            //         ["name"] = "Jowc",
+                            //         ["id"] = "1658caaf-0db9-43eb-ae89-1c22900d37c3"
+                            //     }
+                            // }
                         },
                         ["description"] = new JObject
                         {
@@ -133,6 +140,8 @@ public class Server
                             .AppendLong(pingRequestPacket.Payload)
                             .GetBytes()
                     );
+                    
+                    client.Close();
                     break;
                 }
             }
@@ -141,6 +150,8 @@ public class Server
 
     private Packet ReadNextPacket(Stream stream)
     {
+        Console.WriteLine(); // space between packets
+        
         var packetLength = stream.ReadVarInt();
         ThreadLogger.Log($"Packet length: {packetLength}");
 
