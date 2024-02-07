@@ -1,4 +1,5 @@
 ﻿using System.Text;
+using littlecat.Extensions;
 using littlecat.Utils;
 
 namespace littlecat.Packets;
@@ -21,6 +22,13 @@ public class PacketBuilder(ClientboundPacketId id)
     {
         var varLong = StreamExtensions.EncodeVarLong(value);
         _dataStream.Write(varLong, 0, varLong.Length);
+        return this;
+    }
+
+    public PacketBuilder AppendLengthPrefixedBytes(byte[] value)
+    {
+        AppendVarInt(value.Length);
+        _dataStream.Write(value, 0, value.Length);
         return this;
     }
 
@@ -66,4 +74,6 @@ public class PacketBuilder(ClientboundPacketId id)
         
         return packet;
     }
+    
+    public static implicit operator ReadOnlySpan<byte>(PacketBuilder builder) => builder.GetBytes();
 }

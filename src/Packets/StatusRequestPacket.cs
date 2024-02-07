@@ -1,5 +1,5 @@
 ﻿namespace littlecat.Packets;
 
-public class StatusRequestPacket() : Packet(ServerboundPacketId.Handshake)
+public class StatusRequestPacket() : Packet(ServerboundPacketId.StatusRequest)
 {
 }
