@@ -1,7 +1,6 @@
-﻿using System.Net;
+﻿using System.Globalization;
+using System.Net;
 using System.Net.Sockets;
-using System.Security.Cryptography;
-using System.Text;
 using littlecat.Extensions;
 using littlecat.Packets;
 using littlecat.Utils;
@@ -19,12 +18,26 @@ using Org.BouncyCastle.X509;
 
 namespace littlecat;
 
+public enum ConnectionState
+{
+    Handshake,
+    Configuration,
+    Play
+}
+
+public enum HandshakeNextState
+{
+    Status = 1,
+    Login = 2
+}
+
 public class ClientState
 {
     public required NetworkStream Stream;
     public CipherStream? CipherStream;
 
-    // Handshake state
+    // State
+    public ConnectionState ConnectionState = ConnectionState.Handshake;
     public HandshakeNextState HandshakeNextState;
     public bool WaitingForEncryptionResponse;
 
@@ -48,7 +61,7 @@ public class Server
     private readonly byte[] _publicKeyDer;
 
     private readonly IBufferedCipher _rsaDecrypt;
-    
+
     private PaddedBufferedBlockCipher? _aesEncrypt;
     private PaddedBufferedBlockCipher? _aesDecrypt;
 
@@ -66,7 +79,7 @@ public class Server
         var generator = new RsaKeyPairGenerator();
         generator.Init(new KeyGenerationParameters(new SecureRandom(), 1024));
         var keyPair = generator.GenerateKeyPair();
-        
+
         _rsaDecrypt = CipherUtilities.GetCipher("RSA/None/PKCS1Padding");
         _rsaDecrypt.Init(false, keyPair.Private);
 
@@ -114,229 +127,202 @@ public class Server
 
         while (client.Connected)
         {
-            Packet packet;
-            try
-            {
-                packet = ReadNextPacket(clientState);
-            }
-            catch (InvalidDataException e)
-            {
-                // bye bye :3
-                ThreadLogger.Warn(e.ToString());
-                client.Close();
-                return;
-            }
+            Stream stream = clientState.EncryptionActive
+                ? clientState.CipherStream!
+                : clientState.Stream;
 
-            ThreadLogger.Log($"Received packet: {packet.Id:G} ({packet.Id:X})");
+            var packetLength = stream.ReadVarInt();
+            var packetId = stream.ReadVarInt();
 
-            switch (packet)
+            ThreadLogger.Log($"Received packet with id {packetId:X} and length {packetLength}");
+
+            if (clientState.ConnectionState == ConnectionState.Handshake)
             {
-                case HandshakePacket handshakePacket:
+                switch (packetId)
                 {
-                    clientState.HandshakeNextState = handshakePacket.NextState;
-
-                    ThreadLogger.Log("Handshake packet");
-
-                    ThreadLogger.Log($"Protocol version: {handshakePacket.ProtocolVersion}");
-                    ThreadLogger.Log($"Server address: {handshakePacket.ServerAddress}");
-                    ThreadLogger.Log($"Server port: {handshakePacket.ServerPort}");
-                    ThreadLogger.Log($"Next state: {handshakePacket.NextState:G}");
-                    break;
-                }
-                case StatusRequestPacket:
-                {
-                    ThreadLogger.Log("Status request packet");
-
-                    JObject response = new()
+                    case 0x00:
                     {
-                        ["version"] = new JObject
+                        // Status request
+                        if (clientState.HandshakeNextState == HandshakeNextState.Status)
                         {
-                            ["name"] = Version,
-                            ["protocol"] = ProtocolVersion
-                        },
-                        ["players"] = new JObject
+                            ThreadLogger.Log("Status request packet");
+
+                            JObject response = new()
+                            {
+                                ["version"] = new JObject
+                                {
+                                    ["name"] = Version,
+                                    ["protocol"] = ProtocolVersion
+                                },
+                                ["players"] = new JObject
+                                {
+                                    ["max"] = _configHandler.MaxPlayers,
+                                    ["online"] = 0,
+                                    // ["sample"] = new JArray
+                                    // {
+                                    //     new JObject
+                                    //     {
+                                    //         ["name"] = "Jowc",
+                                    //         ["id"] = "1658caaf-0db9-43eb-ae89-1c22900d37c3"
+                                    //     }
+                                    // }
+                                },
+                                ["description"] = new JObject
+                                {
+                                    ["text"] = _configHandler.Motd
+                                },
+                                ["favicon"] = _faviconBase64 != null ? "data:image/png;base64," + _faviconBase64 : null,
+                                ["enforcesSecureChat"] = false,
+                                ["previewsChat"] = false
+                            };
+
+                            SendPacket(clientState,
+                                new PacketBuilder(ClientboundPacketId.StatusResponse)
+                                    .AppendString(JsonConvert.SerializeObject(response))
+                            );
+                            break;
+                        }
+
+                        // Login start
+                        if (clientState.HandshakeNextState == HandshakeNextState.Login)
                         {
-                            ["max"] = _configHandler.MaxPlayers,
-                            ["online"] = 0,
-                            // ["sample"] = new JArray
-                            // {
-                            //     new JObject
-                            //     {
-                            //         ["name"] = "Jowc",
-                            //         ["id"] = "1658caaf-0db9-43eb-ae89-1c22900d37c3"
-                            //     }
-                            // }
-                        },
-                        ["description"] = new JObject
-                        {
-                            ["text"] = _configHandler.Motd
-                        },
-                        ["favicon"] = _faviconBase64 != null ? "data:image/png;base64," + _faviconBase64 : null,
-                        ["enforcesSecureChat"] = false,
-                        ["previewsChat"] = false
-                    };
+                            ThreadLogger.Log("Login start packet");
 
-                    SendPacket(
-                        clientState,
-                        new PacketBuilder(ClientboundPacketId.StatusResponse)
-                            .AppendString(JsonConvert.SerializeObject(response))
-                    );
-                    break;
-                }
-                case PingRequestPacket pingRequestPacket:
-                {
-                    ThreadLogger.Log("Ping request packet");
+                            var playerName = stream.ReadString();
+                            var playerUuid = stream.ReadUuid();
 
-                    SendPacket(
-                        clientState,
-                        new PacketBuilder(ClientboundPacketId.PongResponse)
-                            .AppendLong(pingRequestPacket.Payload)
-                    );
+                            ThreadLogger.Log($"Player name: {playerName}");
+                            ThreadLogger.Log($"Player UUID: {playerUuid}");
 
-                    client.Close();
-                    break;
-                }
-                case LoginStartPacket loginStartPacket:
-                {
-                    ThreadLogger.Log("Login start packet");
-                    ThreadLogger.Log($"Player name: {loginStartPacket.PlayerName}");
-                    ThreadLogger.Log($"Player UUID: {loginStartPacket.PlayerUuid}");
+                            clientState.Username = playerName;
 
-                    clientState.Username = loginStartPacket.PlayerName;
+                            new Random().NextBytes(clientState.VerifyToken);
 
-                    new Random().NextBytes(clientState.VerifyToken);
-                    ThreadLogger.Log($"Generated verify token: {BitConverter.ToString(clientState.VerifyToken)}");
+                            SendPacket(clientState,
+                                new PacketBuilder(ClientboundPacketId.EncryptionRequest)
+                                    .AppendString("") // server id
+                                    .AppendLengthPrefixedBytes(_publicKeyDer)
+                                    .AppendLengthPrefixedBytes(clientState.VerifyToken)
+                            );
 
-                    SendPacket(
-                        clientState,
-                        new PacketBuilder(ClientboundPacketId.EncryptionRequest)
-                            .AppendString("") // server id
-                            .AppendLengthPrefixedBytes(_publicKeyDer)
-                            .AppendLengthPrefixedBytes(clientState.VerifyToken)
-                    );
+                            clientState.WaitingForEncryptionResponse = true;
+                            break;
+                        }
 
-                    clientState.WaitingForEncryptionResponse = true;
-                    break;
-                }
-                case EncryptionResponsePacket encryptionResponsePacket:
-                {
-                    ThreadLogger.Log("Encryption response packet");
+                        _ = stream.ReadVarInt(); // protocol version
+                        _ = stream.ReadString(); // server address
+                        _ = stream.ReadShort(); // server port
+                        var nextState = (HandshakeNextState)stream.ReadVarInt();
 
-                    var sharedSecret = encryptionResponsePacket.SharedSecret;
-                    var verifyToken = encryptionResponsePacket.VerifyToken;
+                        clientState.HandshakeNextState = nextState;
 
-                    var decryptedVerifyToken = _rsaDecrypt.DoFinal(verifyToken);
-                    ThreadLogger.Log($"Decrypted verify token: {BitConverter.ToString(decryptedVerifyToken)}");
-
-                    var decryptedSharedSecret = _rsaDecrypt.DoFinal(sharedSecret);
-                    ThreadLogger.Log($"Decrypted shared secret: {BitConverter.ToString(decryptedSharedSecret)}");
-
-                    if (clientState.VerifyToken.SequenceEqual(decryptedVerifyToken))
-                    {
-                        ThreadLogger.Log("Verify tokens match");
-
-                        // initial vector and key are both the shared secret
-                        var key = new KeyParameter(decryptedSharedSecret);
-                        var iv = new ParametersWithIV(key, decryptedSharedSecret);
-                        
-                        _aesEncrypt = new PaddedBufferedBlockCipher(new CfbBlockCipher(new AesEngine(), 8));
-                        _aesEncrypt.Init(true, iv);
-                        
-                        _aesDecrypt = new PaddedBufferedBlockCipher(new CfbBlockCipher(new AesEngine(), 8));
-                        _aesDecrypt.Init(false, iv);
-                        
-                        clientState.CipherStream = new CipherStream(clientState.Stream, _aesDecrypt, _aesEncrypt);
-                        clientState.EncryptionActive = true;
+                        ThreadLogger.Log("Handshake packet");
+                        break;
                     }
+                    case 0x01:
+                    {
+                        // Encryption response
+                        if (clientState.WaitingForEncryptionResponse)
+                        {
+                            ThreadLogger.Log("Encryption response packet");
 
-                    // update sha1 with server id, shared secret, and public key
+                            var sharedSecret = stream.ReadLengthPrefixedBytes();
+                            var verifyToken = stream.ReadLengthPrefixedBytes();
 
+                            var decryptedVerifyToken = _rsaDecrypt.DoFinal(verifyToken);
+                            var decryptedSharedSecret = _rsaDecrypt.DoFinal(sharedSecret);
 
-                    var digest = decryptedSharedSecret.Concat(_publicKeyDer).ToMinecraftShaHexDigest();
-                    ThreadLogger.Log($"Digest: {digest}");
+                            if (!clientState.VerifyToken.SequenceEqual(decryptedVerifyToken))
+                            {
+                                ThreadLogger.Log("Verify tokens do not match");
+                                client.Close();
+                                break;
+                            }
 
-                    var hasJoinedInfo = await MojangApi.GetUserInfo(clientState.Username!, digest);
+                            ThreadLogger.Log("Verify tokens match");
 
-                    ThreadLogger.Log($"Has joined info: {hasJoinedInfo}");
+                            var key = new KeyParameter(decryptedSharedSecret);
+                            var iv = new ParametersWithIV(key, decryptedSharedSecret);
 
-                    SendPacket(
-                        clientState,
-                        new PacketBuilder(ClientboundPacketId.LoginSuccess)
-                        // todo
-                    );
+                            _aesEncrypt = new PaddedBufferedBlockCipher(new CfbBlockCipher(new AesEngine(), 8));
+                            _aesEncrypt.Init(true, iv);
 
-                    clientState.WaitingForEncryptionResponse = false;
-                    break;
+                            _aesDecrypt = new PaddedBufferedBlockCipher(new CfbBlockCipher(new AesEngine(), 8));
+                            _aesDecrypt.Init(false, iv);
+
+                            clientState.CipherStream =
+                                new CipherStream(clientState.Stream, _aesDecrypt, _aesEncrypt);
+                            clientState.EncryptionActive = true;
+
+                            var digest = decryptedSharedSecret.Concat(_publicKeyDer).ToMinecraftShaHexDigest();
+
+                            var hasJoinedInfo = await MojangApi.GetUserInfo(clientState.Username!, digest);
+                            var uuid = hasJoinedInfo["id"]?.ToObject<string>();
+
+                            var packetBuilder = new PacketBuilder(ClientboundPacketId.LoginSuccess)
+                                .AppendUuid(UInt128.Parse(uuid!, NumberStyles.HexNumber))
+                                .AppendString(clientState.Username!);
+
+                            var numberOfProperties = hasJoinedInfo["properties"]?.Count() ?? 0;
+
+                            packetBuilder.AppendVarInt(numberOfProperties);
+
+                            if (numberOfProperties > 0)
+                            {
+                                foreach (var property in hasJoinedInfo["properties"]!)
+                                {
+                                    packetBuilder
+                                        .AppendString(property["name"]!.ToObject<string>()!)
+                                        .AppendString(property["value"]!.ToObject<string>()!);
+
+                                    if (property["signature"] != null)
+                                    {
+                                        packetBuilder
+                                            .AppendBoolean(true)
+                                            .AppendString(property["signature"]!.ToObject<string>()!);
+                                    }
+                                }
+                            }
+
+                            SendPacket(clientState, packetBuilder);
+
+                            clientState.WaitingForEncryptionResponse = false;
+                            break;
+                        }
+
+                        // Ping request
+                        ThreadLogger.Log("Ping request packet");
+                        var payload = stream.ReadLong();
+
+                        SendPacket(clientState,
+                            new PacketBuilder(ClientboundPacketId.PongResponse)
+                                .AppendLong(payload)
+                        );
+
+                        client.Close();
+                        break;
+                    }
+                    case 0x03:
+                    {
+                        ThreadLogger.Log("Login acknowledged packet");
+                        clientState.ConnectionState = ConnectionState.Configuration;
+                        break;
+                    }
+                    default:
+                    {
+                        throw new InvalidDataException($"Unknown packet id: {packetId} (0x{packetId:X})");
+                    }
                 }
             }
-        }
-    }
 
-    private Packet ReadNextPacket(ClientState clientState)
-    {
-        Console.WriteLine(); // space between packets
-        
-        ThreadLogger.Log(clientState.HandshakeNextState.ToString("G"));
-
-        ThreadLogger.Log(clientState.EncryptionActive.ToString());
-        Stream stream = clientState.EncryptionActive
-            ? clientState.CipherStream!
-            : clientState.Stream;
-
-        var packetLength = stream.ReadVarInt();
-        ThreadLogger.Log($"Packet length: {packetLength}");
-
-        var packetId = stream.ReadVarInt();
-        ThreadLogger.Log($"Received packet id: {packetId:X}");
-
-        switch (packetId)
-        {
-            case 0x00:
-            {
-                // ReSharper disable once ConvertIfStatementToSwitchStatement
-                if (clientState.HandshakeNextState == HandshakeNextState.Status) return new StatusRequestPacket();
-
-                if (clientState.HandshakeNextState == HandshakeNextState.Login)
-                {
-                    var playerName = stream.ReadString();
-                    var playerUuid = stream.ReadUuid();
-
-                    return new LoginStartPacket(playerName, playerUuid);
-                }
-
-                var protocolVersion = stream.ReadVarInt();
-                var serverAddress = stream.ReadString();
-                var serverPort = stream.ReadShort();
-                var nextState = (HandshakeNextState)stream.ReadVarInt();
-
-                return new HandshakePacket(
-                    protocolVersion,
-                    serverAddress,
-                    serverPort,
-                    nextState
-                );
-            }
-            case 0x01:
-            {
-                if (clientState.WaitingForEncryptionResponse) // EncryptionResponsePacket
-                {
-                    var sharedSecret = stream.ReadLengthPrefixedBytes();
-                    var verifyToken = stream.ReadLengthPrefixedBytes();
-                    return new EncryptionResponsePacket(sharedSecret, verifyToken);
-                }
-
-                var payload = stream.ReadLong();
-                return new PingRequestPacket(payload);
-            }
-            default:
-                throw new InvalidDataException($"Unknown packet id: {packetId} (0x{packetId:X})");
+            Console.WriteLine();
         }
     }
 
     private void SendPacket(ClientState clientState, PacketBuilder packet)
     {
         var packetBytes = packet.GetBytes();
-        
+
         if (clientState.EncryptionActive)
         {
             clientState.CipherStream!.Write(packetBytes, 0, packetBytes.Length);

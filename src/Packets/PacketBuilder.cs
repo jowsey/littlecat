@@ -41,22 +41,32 @@ public class PacketBuilder(ClientboundPacketId id)
     
     public PacketBuilder AppendLong(long value)
     {
-        var longBytes = BitConverter.GetBytes(value).Reverse().ToArray();
-        _dataStream.Write(value.ToBigEndianBytes(), 0, longBytes.Length);
+        var longBytes = value.ToBigEndianBytes();
+        _dataStream.Write(longBytes, 0, longBytes.Length);
         return this;
     }
     
-    public PacketBuilder AppendInt(int value)
+    public PacketBuilder AppendUlong(ulong value)
     {
-        var intBytes = BitConverter.GetBytes(value).Reverse().ToArray();
-        _dataStream.Write(value.ToBigEndianBytes(), 0, intBytes.Length);
+        var ulongBytes = value.ToBigEndianBytes();
+        _dataStream.Write(ulongBytes, 0, ulongBytes.Length);
         return this;
     }
     
-    public PacketBuilder AppendShort(short value)
+    public PacketBuilder AppendUuid(UInt128 value)
     {
-        var shortBytes = BitConverter.GetBytes(value).Reverse().ToArray();
-        _dataStream.Write(value.ToBigEndianBytes(), 0, shortBytes.Length);
+        var lower = (ulong)value; //next .NET feature release (8.1/9) should get BitCoverter for UInt128
+        var upper = (ulong)(value >> 64);
+        
+        AppendUlong(upper);
+        AppendUlong(lower);
+        
+        return this;
+    }
+    
+    public PacketBuilder AppendBoolean(bool value)
+    {
+        _dataStream.WriteByte(value ? (byte)1 : (byte)0);
         return this;
     }
 

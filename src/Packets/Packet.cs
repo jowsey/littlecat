@@ -7,6 +7,7 @@ public enum ServerboundPacketId
     LoginStart = 0x00,
     PingRequest = 0x01,
     EncryptionResponse = 0x01,
+    LoginAcknowledged = 0x03
 }
 
 public enum ClientboundPacketId
