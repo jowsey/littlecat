@@ -1,6 +1,7 @@
 ﻿using System.Text;
 using littlecat.Extensions;
 using littlecat.Utils;
+using SharpNBT;
 
 namespace littlecat.Packets;
 
@@ -28,6 +29,12 @@ public class PacketBuilder(ClientboundPacketId id)
     public PacketBuilder AppendLengthPrefixedBytes(byte[] value)
     {
         AppendVarInt(value.Length);
+        _dataStream.Write(value, 0, value.Length);
+        return this;
+    }
+    
+    public PacketBuilder AppendBytes(byte[] value)
+    {
         _dataStream.Write(value, 0, value.Length);
         return this;
     }
@@ -67,6 +74,32 @@ public class PacketBuilder(ClientboundPacketId id)
     public PacketBuilder AppendBoolean(bool value)
     {
         _dataStream.WriteByte(value ? (byte)1 : (byte)0);
+        return this;
+    }
+    
+    public PacketBuilder AppendInt(int value)
+    {
+        var intBytes = value.ToBigEndianBytes();
+        _dataStream.Write(intBytes, 0, intBytes.Length);
+        return this;
+    }
+    
+    public PacketBuilder AppendByte(byte value)
+    {
+        _dataStream.WriteByte(value);
+        return this;
+    }
+    
+    public PacketBuilder AppendSByte(sbyte value)
+    {
+        _dataStream.WriteByte((byte)value);
+        return this;
+    }
+    
+    public PacketBuilder AppendNbt(CompoundTag value)
+    {
+        using var writer = new TagWriter(_dataStream, FormatOptions.Java);
+        writer.WriteTag(value);
         return this;
     }
 

@@ -88,7 +88,7 @@ public static class StreamExtensions
     public static string ReadString(this Stream stream)
     {
         var buffer = new byte[stream.ReadVarInt()];
-        stream.Read(buffer, 0, buffer.Length);
+        _ = stream.Read(buffer, 0, buffer.Length);
         return Encoding.UTF8.GetString(buffer);
     }
 
@@ -136,7 +136,14 @@ public static class StreamExtensions
     {
         var length = stream.ReadVarInt();
         var buffer = new byte[length];
-        stream.Read(buffer, 0, length);
+        _ = stream.Read(buffer, 0, length);
+        return buffer;
+    }
+    
+    public static byte[] ReadExactly(this Stream stream, int count)
+    {
+        var buffer = new byte[count];
+        _ = stream.Read(buffer, 0, count);
         return buffer;
     }
 }
