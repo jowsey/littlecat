@@ -41,7 +41,7 @@ public class Client
 
     // Encryption
     public readonly byte[] VerifyToken = new byte[4];
-    public bool EncryptionActive;
+    public bool EncryptionActive; // todo can't we just check if CipherStream is null?
 
     // User
     public string? Username;
@@ -592,20 +592,20 @@ public class Server
 
                         var digest = decryptedSharedSecret.Concat(_publicKeyDer).ToMinecraftShaHexDigest();
 
-                        var hasJoinedInfo = await MojangApi.GetUserInfo(client.Username!, digest);
-                        var uuid = hasJoinedInfo["id"]?.ToObject<string>();
+                        var userInfo = await MojangApi.GetUserInfo(client.Username!, digest);
+                        var uuid = userInfo["id"]?.ToObject<string>();
 
                         var packetBuilder = new PacketBuilder(ClientboundPacketId.LoginSuccess)
                             .AppendUuid(UInt128.Parse(uuid!, NumberStyles.HexNumber))
-                            .AppendString(client.Username!);
+                            .AppendString(client.Username!); // todo
 
-                        var numberOfProperties = hasJoinedInfo["properties"]?.Count() ?? 0;
+                        var numberOfProperties = userInfo["properties"]?.Count() ?? 0;
 
                         packetBuilder.AppendVarInt(numberOfProperties);
 
                         if (numberOfProperties > 0)
                         {
-                            foreach (var property in hasJoinedInfo["properties"]!)
+                            foreach (var property in userInfo["properties"]!)
                             {
                                 packetBuilder
                                     .AppendString(property["name"]!.ToObject<string>()!)
