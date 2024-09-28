@@ -1,4 +1,6 @@
-﻿using System.Text;
+﻿using System.Collections;
+using System.Net.Http.Headers;
+using System.Text;
 using littlecat.Extensions;
 using littlecat.Utils;
 using SharpNBT;
@@ -100,6 +102,18 @@ public class PacketBuilder(ClientboundPacketId id)
     {
         using var writer = new TagWriter(_dataStream, FormatOptions.Java);
         writer.WriteTag(value);
+        return this;
+    }
+    
+    // C# BitArray <-> Java BitSet
+    public PacketBuilder AppendBitSet(BitArray value)
+    {
+        var longs = value.ToLongArray();
+        AppendVarInt(longs.Length);
+        foreach (var l in longs)
+        {
+            AppendLong(l);
+        }
         return this;
     }
 

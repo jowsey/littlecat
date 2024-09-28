@@ -91,17 +91,16 @@ public class Server
 
         _publicKeyDer = SubjectPublicKeyInfoFactory.CreateSubjectPublicKeyInfo(keyPair.Public).GetDerEncoded();
 
-        // Generate registry
+        // generate registry
         var embeddedProvider = new EmbeddedFileProvider(Assembly.GetExecutingAssembly());
         var embeddedFileInfo = embeddedProvider.GetFileInfo("res/registry_data.json");
         using var reader = new StreamReader(embeddedFileInfo.CreateReadStream());
         var registryJson = JObject.Parse(reader.ReadToEnd());
-        
-        // create registry tags from json
+
         // temporarily disable Console.WriteLine to avoid spam
         var initialOut = Console.Out;
         Console.SetOut(TextWriter.Null);
-        
+
         foreach (var (registryName, registryObj) in registryJson)
         {
             var tb = new TagBuilder(registryName);
@@ -379,7 +378,7 @@ public class Server
             var compound = tb.Create();
             _registries.Add(compound);
         }
-        
+
         Console.SetOut(initialOut);
     }
 
@@ -479,6 +478,7 @@ public class Server
                                 new PacketBuilder(ClientboundPacketId.StatusResponse)
                                     .AppendString(JsonConvert.SerializeObject(response))
                             );
+
                             break;
                         }
 
@@ -508,14 +508,15 @@ public class Server
                             break;
                         }
 
+                        // Handshake
+                        ThreadLogger.Log("Handshake packet");
+                        
                         _ = stream.ReadVarInt(); // protocol version
                         _ = stream.ReadString(); // server address
                         _ = stream.ReadShort(); // server port
                         var nextState = (HandshakeNextState)stream.ReadVarInt();
 
                         clientState.HandshakeNextState = nextState;
-
-                        ThreadLogger.Log("Handshake packet");
                         break;
                     }
                     case 0x01:
@@ -679,6 +680,22 @@ public class Server
                                 .AppendVarInt(0) // portal cooldown (might be ignored?)
                         );
                         
+                        // todo send Chunk Data and Update Light, Synchronize Player Position, and Set Default Spawn Position
+                        // https://wiki.vg/Protocol#Chunk_Data_and_Update_Light
+                        // https://wiki.vg/Protocol#Synchronize_Player_Position
+                        // https://wiki.vg/Protocol#Set_Default_Spawn_Position
+                        // then we're IN GAME!!! :3
+                        // also maybe think about moving packet send/recieve blocks into their own functions
+                        // (possibly making type safe packet sending functions for repeating?)
+                        // ALSO maybe look into way of representing packet ids in enum while having mutliple of them
+                        
+                        SendPacket(clientState,
+                            new PacketBuilder(ClientboundPacketId.ChunkDataAndUpdateLight)
+                                .AppendInt(0) // chunk x
+                                .AppendInt(0) // chunk z
+                                .AppendNbt(null) // heightmaps
+                                .AppendLengthPrefixedBytes(null) // chunk data
+                            );
                         
                         break;
                     }

@@ -1,6 +1,6 @@
 ﻿namespace littlecat.Packets;
 
-public enum ServerboundPacketId //todo might not use this anymore maybe remove
+public enum ServerboundPacketId
 {
     Handshake = 0x00,
     StatusRequest = 0x00,
@@ -20,5 +20,7 @@ public enum ClientboundPacketId
     FinishConfiguration = 0x02,
     RegistryData = 0x05,
     ChangeDifficulty = 0x0B,
+    ChunkDataAndUpdateLight = 0x25,
+    UpdateLight = 0x28,
     Play = 0x29
 }
