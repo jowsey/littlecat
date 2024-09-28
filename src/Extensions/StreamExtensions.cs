@@ -7,8 +7,8 @@ public static class StreamExtensions
     private const int SegmentBits = 0b01111111;
     private const int ContinueBit = 0b10000000;
 
-    public const int MaxVarIntBytes = 5;
-    public const int MaxVarLongBytes = 10;
+    // public const int MaxVarIntBytes = 5;
+    // public const int MaxVarLongBytes = 10;
 
     public static int ReadVarInt(this Stream stream)
     {

@@ -8,12 +8,14 @@ public static class MojangApi
     
     public static async Task<JObject> GetUserInfo(string username, string hash)
     {
+        Console.WriteLine($"Getting user info for {username} with hash {hash}");
+        
         var url = $"https://sessionserver.mojang.com/session/minecraft/hasJoined?username={username}&serverId={hash}";
         
         var response = await Client.GetAsync(url);
         var responseString = await response.Content.ReadAsStringAsync();
         
-        ThreadLogger.Log($"Retrieved user info for {username} with hash {hash}");
+        Console.WriteLine($"Response: {responseString}");
 
         return JObject.Parse(responseString);
     }

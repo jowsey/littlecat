@@ -29,4 +29,11 @@ public static class ByteUtils
         if (BitConverter.IsLittleEndian) Array.Reverse(bytes);
         return bytes;
     }
+    
+    public static byte[] ToBigEndianBytes(this UInt128 value)
+    {
+        var bytes = BitConverter.GetBytes(value);
+        if (BitConverter.IsLittleEndian) Array.Reverse(bytes);
+        return bytes;
+    }
 }

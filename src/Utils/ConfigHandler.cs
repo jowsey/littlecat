@@ -1,4 +1,5 @@
-﻿using YamlDotNet.Serialization;
+﻿using System.Reflection;
+using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 
 namespace littlecat.Utils;
@@ -17,9 +18,11 @@ public struct Config
 
 public static class ConfigHandler
 {
-    public static async Task<Config> GetServerConfig(string path)
+    public static Config ReadConfigAtPath(string path)
     {
         Config config;
+        var serverDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+        path = Path.Combine(serverDir!, path);
 
         if (!File.Exists(path))
         {
@@ -29,7 +32,7 @@ public static class ConfigHandler
 
             config = new Config();
             var serializedConfig = serializer.Serialize(config);
-            await File.WriteAllTextAsync("server.yaml", serializedConfig);
+            File.WriteAllText(path, serializedConfig);
         }
         else
         {
@@ -37,7 +40,7 @@ public static class ConfigHandler
                 .WithNamingConvention(CamelCaseNamingConvention.Instance)
                 .Build();
 
-            var configFile = await File.ReadAllTextAsync("server.yaml");
+            var configFile = File.ReadAllText(path);
 
             config = deserializer.Deserialize<Config>(configFile);
         }

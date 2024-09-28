@@ -23,26 +23,21 @@ namespace littlecat;
 
 public enum ConnectionState
 {
-    Handshake,
+    Handshaking,
+    Status,
+    Login,
+    Transfer, // todo not sure if needed
     Configuration,
     Play
 }
 
-public enum HandshakeNextState
-{
-    Status = 1,
-    Login = 2
-}
-
-public class ClientState
+public class Client
 {
     public required NetworkStream Stream;
     public CipherStream? CipherStream;
 
     // State
-    public ConnectionState ConnectionState = ConnectionState.Handshake;
-    public HandshakeNextState HandshakeNextState;
-    public bool WaitingForEncryptionResponse;
+    public ConnectionState State = ConnectionState.Handshaking;
 
     // Encryption
     public readonly byte[] VerifyToken = new byte[4];
@@ -54,15 +49,14 @@ public class ClientState
 
 public class Server
 {
-    private const string Version = "1.20.4";
-    private const int ProtocolVersion = 765;
+    private const string Version = "1.21.1";
+    private const int ProtocolVersion = 767;
 
     private readonly Config _configHandler;
-
     private readonly string? _faviconBase64;
 
+    // Encryption
     private readonly byte[] _publicKeyDer;
-
     private readonly IBufferedCipher _rsaDecrypt;
 
     private PaddedBufferedBlockCipher? _aesEncrypt;
@@ -75,7 +69,9 @@ public class Server
         _configHandler = configHandler;
 
         // load favicon
-        if (File.Exists(_configHandler.FaviconPath))
+        var serverDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)!;
+        var faviconPath = Path.Combine(serverDir, _configHandler.FaviconPath);
+        if (File.Exists(faviconPath))
         {
             var faviconBytes = File.ReadAllBytes(_configHandler.FaviconPath);
             _faviconBase64 = Convert.ToBase64String(faviconBytes);
@@ -101,6 +97,8 @@ public class Server
         var initialOut = Console.Out;
         Console.SetOut(TextWriter.Null);
 
+        // todo figure out if we need to be doing all this
+        // also todo almost certain this can be automated yuck
         foreach (var (registryName, registryObj) in registryJson)
         {
             var tb = new TagBuilder(registryName);
@@ -393,16 +391,15 @@ public class Server
 
             while (true)
             {
-                ThreadLogger.Log("Waiting for a connection...");
+                Console.WriteLine("Waiting for a connection...");
 
                 var client = await listener.AcceptTcpClientAsync();
-
-                ThreadPool.QueueUserWorkItem(HandleClient, client);
+                _ = Task.Run(() => HandleClientAsync(client));
             }
         }
         catch (SocketException e)
         {
-            ThreadLogger.Log($"SocketException: {e}");
+            Console.WriteLine($"SocketException: {e}");
         }
         finally
         {
@@ -410,210 +407,64 @@ public class Server
         }
     }
 
-    private async void HandleClient(object? state)
+    private async Task HandleClientAsync(TcpClient tcpClient)
     {
-        if (state is not TcpClient client) return;
+        Console.WriteLine($"Connected to {tcpClient.Client.RemoteEndPoint}");
 
-        ThreadLogger.Log($"Connected to {client.Client.RemoteEndPoint}");
-
-        var clientState = new ClientState
+        var client = new Client
         {
-            Stream = client.GetStream()
+            Stream = tcpClient.GetStream()
         };
 
-        while (client.Connected)
+        try
         {
-            Stream stream = clientState.EncryptionActive
-                ? clientState.CipherStream!
-                : clientState.Stream;
-
-            var packetLength = stream.ReadVarInt();
-            var packetId = stream.ReadVarInt();
-
-            ThreadLogger.Log($"Received packet with id {packetId:X} and length {packetLength}");
-
-            if (clientState.ConnectionState == ConnectionState.Handshake)
+            while (tcpClient.Connected)
             {
+                Stream stream = client.EncryptionActive
+                    ? client.CipherStream!
+                    : client.Stream;
+
+                var packetLength = stream.ReadVarInt();
+                var packetId = stream.ReadVarInt(); // todo see error
+
+                Console.WriteLine($"Recieved packet 0x{packetId:X} while in {client.State}, length {packetLength}");
+
                 switch (packetId)
                 {
-                    case 0x00:
+                    case 0x00 when client.State == ConnectionState.Handshaking:
                     {
-                        // Status request
-                        if (clientState.HandshakeNextState == HandshakeNextState.Status)
+                        Console.WriteLine("Handshake packet");
+
+                        var protocolVersion = stream.ReadVarInt();
+                        if (protocolVersion != ProtocolVersion)
                         {
-                            ThreadLogger.Log("Status request packet");
-
-                            JObject response = new()
-                            {
-                                ["version"] = new JObject
-                                {
-                                    ["name"] = Version,
-                                    ["protocol"] = ProtocolVersion
-                                },
-                                ["players"] = new JObject
-                                {
-                                    ["max"] = _configHandler.MaxPlayers,
-                                    ["online"] = 0,
-                                    // ["sample"] = new JArray
-                                    // {
-                                    //     new JObject
-                                    //     {
-                                    //         ["name"] = "Jowc",
-                                    //         ["id"] = "1658caaf-0db9-43eb-ae89-1c22900d37c3"
-                                    //     }
-                                    // }
-                                },
-                                ["description"] = new JObject
-                                {
-                                    ["text"] = _configHandler.Motd
-                                },
-                                ["favicon"] = _faviconBase64 != null
-                                    ? "data:image/png;base64," + _faviconBase64
-                                    : null,
-                                ["enforcesSecureChat"] = false,
-                                ["previewsChat"] = false
-                            };
-
-                            SendPacket(clientState,
-                                new PacketBuilder(ClientboundPacketId.StatusResponse)
-                                    .AppendString(JsonConvert.SerializeObject(response))
-                            );
-
+                            Console.WriteLine(
+                                $"Protocol version mismatch: expected {ProtocolVersion}, got {protocolVersion}");
+                            tcpClient.Close();
                             break;
                         }
 
-                        // Login start
-                        if (clientState.HandshakeNextState == HandshakeNextState.Login)
-                        {
-                            ThreadLogger.Log("Login start packet");
+                        _ = stream.ReadString(); // server address (unused)
+                        _ = stream.ReadShort(); // server port (unused)
+                        var nextState = stream.ReadVarInt();
+                        Console.WriteLine($"Next state: {nextState} ({(ConnectionState)nextState})");
 
-                            var playerName = stream.ReadString();
-                            var playerUuid = stream.ReadUuid();
-
-                            ThreadLogger.Log($"Player name: {playerName}");
-                            ThreadLogger.Log($"Player UUID: {playerUuid}");
-
-                            clientState.Username = playerName;
-
-                            new Random().NextBytes(clientState.VerifyToken);
-
-                            SendPacket(clientState,
-                                new PacketBuilder(ClientboundPacketId.EncryptionRequest)
-                                    .AppendString("") // server id
-                                    .AppendLengthPrefixedBytes(_publicKeyDer)
-                                    .AppendLengthPrefixedBytes(clientState.VerifyToken)
-                            );
-
-                            clientState.WaitingForEncryptionResponse = true;
-                            break;
-                        }
-
-                        // Handshake
-                        ThreadLogger.Log("Handshake packet");
-                        
-                        _ = stream.ReadVarInt(); // protocol version
-                        _ = stream.ReadString(); // server address
-                        _ = stream.ReadShort(); // server port
-                        var nextState = (HandshakeNextState)stream.ReadVarInt();
-
-                        clientState.HandshakeNextState = nextState;
+                        client.State = (ConnectionState)nextState;
                         break;
                     }
-                    case 0x01:
-                    {
-                        // Encryption response
-                        if (clientState.WaitingForEncryptionResponse)
-                        {
-                            ThreadLogger.Log("Encryption response packet");
-
-                            var sharedSecret = stream.ReadLengthPrefixedBytes();
-                            var verifyToken = stream.ReadLengthPrefixedBytes();
-
-                            var decryptedVerifyToken = _rsaDecrypt.DoFinal(verifyToken);
-                            var decryptedSharedSecret = _rsaDecrypt.DoFinal(sharedSecret);
-
-                            if (!clientState.VerifyToken.SequenceEqual(decryptedVerifyToken))
-                            {
-                                ThreadLogger.Log("Verify tokens do not match");
-                                client.Close();
-                                break;
-                            }
-
-                            ThreadLogger.Log("Verify tokens match");
-
-                            var key = new KeyParameter(decryptedSharedSecret);
-                            var iv = new ParametersWithIV(key, decryptedSharedSecret);
-
-                            _aesEncrypt = new PaddedBufferedBlockCipher(new CfbBlockCipher(new AesEngine(), 8));
-                            _aesEncrypt.Init(true, iv);
-
-                            _aesDecrypt = new PaddedBufferedBlockCipher(new CfbBlockCipher(new AesEngine(), 8));
-                            _aesDecrypt.Init(false, iv);
-
-                            clientState.CipherStream = new CipherStream(clientState.Stream, _aesDecrypt, _aesEncrypt);
-                            clientState.EncryptionActive = true;
-
-                            var digest = decryptedSharedSecret.Concat(_publicKeyDer).ToMinecraftShaHexDigest();
-
-                            var hasJoinedInfo = await MojangApi.GetUserInfo(clientState.Username!, digest);
-                            var uuid = hasJoinedInfo["id"]?.ToObject<string>();
-
-                            var packetBuilder = new PacketBuilder(ClientboundPacketId.LoginSuccess)
-                                .AppendUuid(UInt128.Parse(uuid!, NumberStyles.HexNumber))
-                                .AppendString(clientState.Username!);
-
-                            var numberOfProperties = hasJoinedInfo["properties"]?.Count() ?? 0;
-
-                            packetBuilder.AppendVarInt(numberOfProperties);
-
-                            if (numberOfProperties > 0)
-                            {
-                                foreach (var property in hasJoinedInfo["properties"]!)
-                                {
-                                    packetBuilder
-                                        .AppendString(property["name"]!.ToObject<string>()!)
-                                        .AppendString(property["value"]!.ToObject<string>()!);
-
-                                    if (property["signature"] != null)
-                                    {
-                                        packetBuilder
-                                            .AppendBoolean(true)
-                                            .AppendString(property["signature"]!.ToObject<string>()!);
-                                    }
-                                }
-                            }
-
-                            SendPacket(clientState, packetBuilder);
-
-                            clientState.WaitingForEncryptionResponse = false;
-                            break;
-                        }
-
-                        // Ping request
-                        ThreadLogger.Log("Ping request packet");
-                        var payload = stream.ReadLong();
-
-                        SendPacket(clientState,
-                            new PacketBuilder(ClientboundPacketId.PongResponse)
-                                .AppendLong(payload)
-                        );
-
-                        client.Close();
-                        break;
-                    }
-                    case 0x03:
+                    case 0x03 when client.State == ConnectionState.Handshaking:
                     {
                         // Login acknowledged
-                        ThreadLogger.Log("Login acknowledged packet");
-                        clientState.ConnectionState = ConnectionState.Configuration;
+                        Console.WriteLine("Login acknowledged packet");
+                        client.State = ConnectionState.Configuration;
 
-                        SendPacket(clientState,
+                        SendPacket(client,
                             new PacketBuilder(ClientboundPacketId.PluginMessage)
                                 .AppendString("minecraft:brand")
                                 .AppendBytes("littlecat :3"u8.ToArray())
                         );
 
-                        SendPacket(clientState,
+                        SendPacket(client,
                             new PacketBuilder(ClientboundPacketId.ChangeDifficulty)
                                 .AppendByte(2)
                                 .AppendBoolean(false)
@@ -621,43 +472,177 @@ public class Server
 
                         foreach (var registry in _registries)
                         {
-                            SendPacket(clientState,
+                            SendPacket(client,
                                 new PacketBuilder(ClientboundPacketId.RegistryData)
                                     .AppendNbt(registry)
                             );
                         }
 
-                        SendPacket(clientState, new PacketBuilder(ClientboundPacketId.FinishConfiguration));
+                        SendPacket(client, new PacketBuilder(ClientboundPacketId.FinishConfiguration));
                         break;
                     }
-                    default:
-                        throw new InvalidDataException($"Unknown packet id: {packetId} (0x{packetId:X})");
-                }
-            }
-            else if (clientState.ConnectionState == ConnectionState.Configuration)
-            {
-                switch (packetId)
-                {
-                    case 0x01:
+                    case 0x00 when client.State == ConnectionState.Status:
+                    {
+                        Console.WriteLine("Status request packet");
+
+                        JObject response = new()
+                        {
+                            ["version"] = new JObject
+                            {
+                                ["name"] = Version,
+                                ["protocol"] = ProtocolVersion
+                            },
+                            ["players"] = new JObject
+                            {
+                                ["max"] = _configHandler.MaxPlayers,
+                                ["online"] = 0,
+                                // ["sample"] = new JArray
+                                // {
+                                //     new JObject
+                                //     {
+                                //         ["name"] = "Jowc",
+                                //         ["id"] = "1658caaf-0db9-43eb-ae89-1c22900d37c3"
+                                //     }
+                                // }
+                            },
+                            ["description"] = new JObject
+                            {
+                                ["text"] = _configHandler.Motd
+                            },
+                            ["favicon"] = _faviconBase64 != null
+                                ? "data:image/png;base64," + _faviconBase64
+                                : null,
+                            ["enforcesSecureChat"] = false,
+                            ["previewsChat"] = false
+                        };
+
+                        SendPacket(client,
+                            new PacketBuilder(ClientboundPacketId.StatusResponse)
+                                .AppendString(JsonConvert.SerializeObject(response))
+                        );
+
+                        break;
+                    }
+                    case 0x01 when client.State == ConnectionState.Status:
+                    {
+                        Console.WriteLine("Ping request packet");
+                        var payload = stream.ReadLong();
+
+                        SendPacket(client,
+                            new PacketBuilder(ClientboundPacketId.PongResponse)
+                                .AppendLong(payload)
+                        );
+
+                        tcpClient.Close();
+                        break;
+                    }
+                    case 0x00 when client.State == ConnectionState.Login:
+                    {
+                        Console.WriteLine("Login start packet");
+
+                        var playerName = stream.ReadString();
+                        var playerUuid = stream.ReadUuid();
+
+                        Console.WriteLine($"Player name: {playerName}");
+                        Console.WriteLine($"Player UUID: {playerUuid}");
+
+                        client.Username = playerName;
+
+                        new Random().NextBytes(client.VerifyToken);
+
+                        SendPacket(client,
+                            new PacketBuilder(ClientboundPacketId.EncryptionRequest)
+                                .AppendString("") // server id
+                                .AppendLengthPrefixedByteArray(_publicKeyDer)
+                                .AppendLengthPrefixedByteArray(client.VerifyToken)
+                                .AppendBoolean(true)
+                        );
+                        break;
+                    }
+                    case 0x01 when client.State == ConnectionState.Login:
+                    {
+                        Console.WriteLine("Encryption response packet");
+
+                        var sharedSecret = stream.ReadLengthPrefixedBytes();
+                        var verifyToken = stream.ReadLengthPrefixedBytes();
+
+                        var decryptedVerifyToken = _rsaDecrypt.DoFinal(verifyToken);
+                        var decryptedSharedSecret = _rsaDecrypt.DoFinal(sharedSecret);
+
+                        if (!client.VerifyToken.SequenceEqual(decryptedVerifyToken))
+                        {
+                            Console.WriteLine("Verify tokens do not match");
+                            tcpClient.Close();
+                            break;
+                        }
+
+                        Console.WriteLine("Verify tokens match");
+
+                        var key = new KeyParameter(decryptedSharedSecret);
+                        var iv = new ParametersWithIV(key, decryptedSharedSecret);
+
+                        _aesEncrypt = new PaddedBufferedBlockCipher(new CfbBlockCipher(new AesEngine(), 8));
+                        _aesEncrypt.Init(true, iv);
+
+                        _aesDecrypt = new PaddedBufferedBlockCipher(new CfbBlockCipher(new AesEngine(), 8));
+                        _aesDecrypt.Init(false, iv);
+
+                        client.CipherStream = new CipherStream(client.Stream, _aesDecrypt, _aesEncrypt);
+                        client.EncryptionActive = true;
+
+                        var digest = decryptedSharedSecret.Concat(_publicKeyDer).ToMinecraftShaHexDigest();
+
+                        var hasJoinedInfo = await MojangApi.GetUserInfo(client.Username!, digest);
+                        var uuid = hasJoinedInfo["id"]?.ToObject<string>();
+
+                        var packetBuilder = new PacketBuilder(ClientboundPacketId.LoginSuccess)
+                            .AppendUuid(UInt128.Parse(uuid!, NumberStyles.HexNumber))
+                            .AppendString(client.Username!);
+
+                        var numberOfProperties = hasJoinedInfo["properties"]?.Count() ?? 0;
+
+                        packetBuilder.AppendVarInt(numberOfProperties);
+
+                        if (numberOfProperties > 0)
+                        {
+                            foreach (var property in hasJoinedInfo["properties"]!)
+                            {
+                                packetBuilder
+                                    .AppendString(property["name"]!.ToObject<string>()!)
+                                    .AppendString(property["value"]!.ToObject<string>()!);
+
+                                if (property["signature"] != null)
+                                {
+                                    packetBuilder
+                                        .AppendBoolean(true)
+                                        .AppendString(property["signature"]!.ToObject<string>()!);
+                                }
+                            }
+                        }
+
+                        SendPacket(client, packetBuilder);
+                        break;
+                    }
+                    case 0x01 when client.State == ConnectionState.Configuration:
                     {
                         // Plugin message
-                        ThreadLogger.Log("Plugin message packet");
+                        Console.WriteLine("Plugin message packet");
 
                         var channel = stream.ReadString();
                         var data = stream.ReadExactly(packetLength - channel.Length);
 
-                        ThreadLogger.Log($"Channel: {channel}");
-                        ThreadLogger.Log($"Data: {BitConverter.ToString(data)}");
+                        Console.WriteLine($"Channel: {channel}");
+                        Console.WriteLine($"Data: {BitConverter.ToString(data)}");
 
                         break;
                     }
-                    case 0x02:
+                    case 0x02 when client.State == ConnectionState.Configuration:
                     {
                         // Finish configuration
-                        ThreadLogger.Log("Finish configuration packet");
-                        clientState.ConnectionState = ConnectionState.Play;
+                        Console.WriteLine("Finish configuration packet");
+                        client.State = ConnectionState.Play;
 
-                        SendPacket(clientState,
+                        SendPacket(client,
                             new PacketBuilder(ClientboundPacketId.Play)
                                 .AppendInt(0) // player eid
                                 .AppendBoolean(false) // is hardcore
@@ -679,43 +664,48 @@ public class Server
                                 .AppendBoolean(false) // has death location
                                 .AppendVarInt(0) // portal cooldown (might be ignored?)
                         );
-                        
-                        // todo send Chunk Data and Update Light, Synchronize Player Position, and Set Default Spawn Position
-                        // https://wiki.vg/Protocol#Chunk_Data_and_Update_Light
-                        // https://wiki.vg/Protocol#Synchronize_Player_Position
-                        // https://wiki.vg/Protocol#Set_Default_Spawn_Position
-                        // then we're IN GAME!!! :3
-                        // also maybe think about moving packet send/recieve blocks into their own functions
-                        // (possibly making type safe packet sending functions for repeating?)
-                        // ALSO maybe look into way of representing packet ids in enum while having mutliple of them
-                        
-                        SendPacket(clientState,
+
+                        SendPacket(client,
                             new PacketBuilder(ClientboundPacketId.ChunkDataAndUpdateLight)
                                 .AppendInt(0) // chunk x
                                 .AppendInt(0) // chunk z
-                                .AppendNbt(null) // heightmaps
-                                .AppendLengthPrefixedBytes(null) // chunk data
-                            );
-                        
+                                .AppendNbt(null) // heightmaps // todo
+                                .AppendLengthPrefixedByteArray(null) // chunk data
+                        );
+
                         break;
                     }
+                    default:
+                        throw new InvalidDataException($"Unknown packet 0x{packetId:X} at state {client.State}");
                 }
-            }
 
-            Console.WriteLine();
+                Console.WriteLine();
+            }
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine($"Exception in client handler: {e}");
+        }
+        finally
+        {
+            tcpClient.Close();
+            Console.WriteLine($"Disconnected from {tcpClient.Client.RemoteEndPoint}");
         }
     }
 
-    private void SendPacket(ClientState clientState, PacketBuilder packet)
+    private void SendPacket(Client client, PacketBuilder packet)
     {
+        Console.WriteLine($"Sending packet {packet.Id} ({packet.Id:X}) to {client.Stream.Socket.RemoteEndPoint}");
+
         var packetBytes = packet.GetBytes();
 
-        if (clientState.EncryptionActive)
+        if (client.EncryptionActive)
         {
-            clientState.CipherStream!.Write(packetBytes, 0, packetBytes.Length);
-            return;
+            client.CipherStream!.Write(packetBytes, 0, packetBytes.Length);
         }
-
-        clientState.Stream.Write(packetBytes, 0, packetBytes.Length);
+        else
+        {
+            client.Stream.Write(packetBytes, 0, packetBytes.Length);
+        }
     }
 }

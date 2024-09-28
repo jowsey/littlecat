@@ -7,12 +7,10 @@ using SharpNBT;
 
 namespace littlecat.Packets;
 
-// builder api
-
 public class PacketBuilder(ClientboundPacketId id)
 {
-    private ClientboundPacketId _id = id;
-    private MemoryStream _dataStream = new();
+    public readonly ClientboundPacketId Id = id;
+    private readonly MemoryStream _dataStream = new();
 
     public PacketBuilder AppendVarInt(int value)
     {
@@ -28,7 +26,7 @@ public class PacketBuilder(ClientboundPacketId id)
         return this;
     }
 
-    public PacketBuilder AppendLengthPrefixedBytes(byte[] value)
+    public PacketBuilder AppendLengthPrefixedByteArray(byte[] value)
     {
         AppendVarInt(value.Length);
         _dataStream.Write(value, 0, value.Length);
@@ -64,12 +62,8 @@ public class PacketBuilder(ClientboundPacketId id)
     
     public PacketBuilder AppendUuid(UInt128 value)
     {
-        var lower = (ulong)value; //next .NET feature release (8.1/9) should get BitCoverter for UInt128
-        var upper = (ulong)(value >> 64);
-        
-        AppendUlong(upper);
-        AppendUlong(lower);
-        
+        var uint128Bytes = value.ToBigEndianBytes();
+        _dataStream.Write(uint128Bytes, 0, uint128Bytes.Length); // todo make sure this works otherwise do what we did before
         return this;
     }
     
@@ -119,7 +113,7 @@ public class PacketBuilder(ClientboundPacketId id)
 
     public byte[] GetBytes()
     {
-        var packetId = StreamExtensions.EncodeVarInt((int)_id);
+        var packetId = StreamExtensions.EncodeVarInt((int)Id);
         var packetData = _dataStream.ToArray();
         
         var totalPacketLength = StreamExtensions.EncodeVarInt(packetId.Length + packetData.Length);
