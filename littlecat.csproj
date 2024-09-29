@@ -18,8 +18,4 @@
         <PackageReference Include="YamlDotNet" Version="15.1.1"/>
     </ItemGroup>
 
-    <ItemGroup>
-        <EmbeddedResource Include="res/registry_data.json"/>
-    </ItemGroup>
-
 </Project>

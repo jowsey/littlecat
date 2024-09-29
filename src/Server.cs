@@ -5,7 +5,6 @@ using System.Reflection;
 using littlecat.Extensions;
 using littlecat.Packets;
 using littlecat.Utils;
-using Microsoft.Extensions.FileProviders;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Org.BouncyCastle.Crypto;
@@ -17,9 +16,22 @@ using Org.BouncyCastle.Crypto.Paddings;
 using Org.BouncyCastle.Crypto.Parameters;
 using Org.BouncyCastle.Security;
 using Org.BouncyCastle.X509;
-using SharpNBT;
 
 namespace littlecat;
+
+public enum ClientboundPacketId
+{
+    StatusResponse = 0x00,
+    PluginMessage = 0x01,
+    PongResponse = 0x01,
+    EncryptionRequest = 0x01,
+    LoginSuccess = 0x02,
+    FinishConfiguration = 0x03,
+    FeatureFlags = 0x0C,
+    KnownPacks = 0x0E,
+    ChunkDataAndUpdateLight = 0x25,
+    Play = 0x29
+}
 
 public enum ConnectionState
 {
@@ -29,6 +41,13 @@ public enum ConnectionState
     Transfer, // todo not sure if needed
     Configuration,
     Play
+}
+
+public struct Pack
+{
+    public string Namespace;
+    public string Id;
+    public string Version;
 }
 
 public class Client
@@ -45,6 +64,8 @@ public class Client
 
     // User
     public string? Username;
+    
+    public readonly List<Pack> KnownPacks = new();
 }
 
 public class Server
@@ -59,10 +80,8 @@ public class Server
     private readonly byte[] _publicKeyDer;
     private readonly IBufferedCipher _rsaDecrypt;
 
-    private PaddedBufferedBlockCipher? _aesEncrypt;
-    private PaddedBufferedBlockCipher? _aesDecrypt;
-
-    private List<CompoundTag> _registries = [];
+    private BufferedBlockCipher? _aesEncrypt;
+    private BufferedBlockCipher? _aesDecrypt;
 
     public Server(Config configHandler)
     {
@@ -86,298 +105,6 @@ public class Server
         _rsaDecrypt.Init(false, keyPair.Private);
 
         _publicKeyDer = SubjectPublicKeyInfoFactory.CreateSubjectPublicKeyInfo(keyPair.Public).GetDerEncoded();
-
-        // generate registry
-        var embeddedProvider = new EmbeddedFileProvider(Assembly.GetExecutingAssembly());
-        var embeddedFileInfo = embeddedProvider.GetFileInfo("res/registry_data.json");
-        using var reader = new StreamReader(embeddedFileInfo.CreateReadStream());
-        var registryJson = JObject.Parse(reader.ReadToEnd());
-
-        // temporarily disable Console.WriteLine to avoid spam
-        var initialOut = Console.Out;
-        Console.SetOut(TextWriter.Null);
-
-        // todo figure out if we need to be doing all this
-        // also todo almost certain this can be automated yuck
-        foreach (var (registryName, registryObj) in registryJson)
-        {
-            var tb = new TagBuilder(registryName);
-            tb.AddString("type", registryName);
-
-            using (tb.NewList(TagType.Compound, "value"))
-            {
-                foreach (var entryObj in registryObj!["value"]!)
-                {
-                    var name = entryObj["name"]!.ToString();
-                    var id = entryObj["id"]!.ToObject<int>();
-                    var el = entryObj["element"]!;
-
-                    using (tb.NewCompound(null))
-                    {
-                        tb.AddString("name", name);
-                        tb.AddInt("id", id);
-
-                        using (tb.NewCompound("element"))
-                        {
-                            switch (registryName)
-                            {
-                                case "minecraft:trim_pattern":
-                                {
-                                    tb.AddString("asset_id", el["asset_id"]!.ToString());
-                                    tb.AddByte("decal", el["decal"]!.ToObject<byte>());
-                                    tb.AddString("template_item", el["template_item"]!.ToString());
-
-                                    using (tb.NewCompound("description"))
-                                    {
-                                        tb.AddString("translate", el["description"]!["translate"]!.ToString());
-                                    }
-
-                                    break;
-                                }
-                                case "minecraft:trim_material":
-                                {
-                                    tb.AddString("ingredient", el["ingredient"]!.ToString());
-                                    tb.AddString("asset_name", el["asset_name"]!.ToString());
-                                    tb.AddFloat("item_model_index", el["item_model_index"]!.ToObject<float>());
-
-                                    using (tb.NewCompound("description"))
-                                    {
-                                        var description = el["description"]!;
-                                        tb.AddString("translate", description["translate"]!.ToString());
-                                        tb.AddString("color", description["color"]!.ToString());
-                                    }
-
-                                    if (el["override_armor_materials"] != null)
-                                    {
-                                        using (tb.NewCompound("override_armor_materials"))
-                                        {
-                                            foreach (var (key, value) in (JObject)el["override_armor_materials"]!)
-                                            {
-                                                tb.AddString(key, value!.ToString());
-                                            }
-                                        }
-                                    }
-
-                                    break;
-                                }
-                                case "minecraft:chat_type":
-                                {
-                                    var children = new[] { "chat", "narration" };
-
-                                    foreach (var child in children)
-                                    {
-                                        using (tb.NewCompound(child))
-                                        {
-                                            tb.AddString("translation_key", el[child]!["translation_key"]!.ToString());
-                                            if (el[child]!["style"] != null)
-                                            {
-                                                // todo add rest of style options (not used in vanilla registry)
-                                                // https://wiki.vg/Text_formatting#Styling_fields
-                                                using (tb.NewCompound("style"))
-                                                {
-                                                    var style = el[child]!["style"]!;
-                                                    tb.AddString("color", style["color"]!.ToString());
-                                                    tb.AddBool("italic", style["italic"]!.ToObject<bool>());
-                                                }
-                                            }
-
-                                            using (tb.NewList(TagType.String, "parameters"))
-                                            {
-                                                foreach (var parameter in el[child]!["parameters"]!)
-                                                {
-                                                    tb.AddString(parameter.ToString());
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    break;
-                                }
-                                case "minecraft:dimension_type":
-                                {
-                                    tb.AddByte("has_skylight", el["has_skylight"]!.ToObject<byte>());
-                                    tb.AddByte("has_ceiling", el["has_ceiling"]!.ToObject<byte>());
-                                    tb.AddByte("ultrawarm", el["ultrawarm"]!.ToObject<byte>());
-                                    tb.AddByte("natural", el["natural"]!.ToObject<byte>());
-                                    tb.AddDouble("coordinate_scale", el["coordinate_scale"]!.ToObject<double>());
-                                    tb.AddByte("bed_works", el["bed_works"]!.ToObject<byte>());
-                                    tb.AddByte("respawn_anchor_works", el["respawn_anchor_works"]!.ToObject<byte>());
-                                    tb.AddInt("min_y", el["min_y"]!.ToObject<int>());
-                                    tb.AddInt("height", el["height"]!.ToObject<int>());
-                                    tb.AddInt("logical_height", el["logical_height"]!.ToObject<int>());
-                                    tb.AddString("infiniburn", el["infiniburn"]!.ToString());
-                                    tb.AddString("effects", el["effects"]!.ToString());
-                                    tb.AddFloat("ambient_light", el["ambient_light"]!.ToObject<float>());
-                                    tb.AddByte("piglin_safe", el["piglin_safe"]!.ToObject<byte>());
-                                    tb.AddByte("has_raids", el["has_raids"]!.ToObject<byte>());
-                                    tb.AddInt("monster_spawn_block_light_limit",
-                                        el["monster_spawn_block_light_limit"]!.ToObject<int>());
-
-                                    if (el["fixed_time"] != null)
-                                    {
-                                        tb.AddLong("fixed_time", el["fixed_time"]!.ToObject<long>());
-                                    }
-
-                                    var msll = el["monster_spawn_light_level"];
-                                    if (msll!.Type == JTokenType.Integer)
-                                    {
-                                        tb.AddInt("monster_spawn_light_level", msll.ToObject<int>());
-                                    }
-                                    else
-                                    {
-                                        using (tb.NewCompound("monster_spawn_light_level"))
-                                        {
-                                            tb.AddString("type", msll["type"]!.ToString());
-                                            using (tb.NewCompound("value"))
-                                            {
-                                                var value = msll["value"]!;
-                                                tb.AddInt("min_inclusive", value["min_inclusive"]!.ToObject<int>());
-                                                tb.AddInt("max_inclusive", value["max_inclusive"]!.ToObject<int>());
-                                            }
-                                        }
-                                    }
-
-                                    break;
-                                }
-                                case "minecraft:damage_type":
-                                {
-                                    tb.AddString("scaling", el["scaling"]!.ToString());
-                                    tb.AddFloat("exhaustion", el["exhaustion"]!.ToObject<float>());
-                                    tb.AddString("message_id", el["message_id"]!.ToString());
-
-                                    if (el["death_message_type"] != null)
-                                    {
-                                        tb.AddString("death_message_type", el["death_message_type"]!.ToString());
-                                    }
-
-                                    if (el["effects"] != null)
-                                    {
-                                        tb.AddString("effects", el["effects"]!.ToString());
-                                    }
-
-                                    break;
-                                }
-                                case "minecraft:worldgen/biome":
-                                {
-                                    tb.AddByte("has_precipitation", el["has_precipitation"]!.ToObject<byte>());
-                                    tb.AddFloat("temperature", el["temperature"]!.ToObject<float>());
-                                    tb.AddFloat("downfall", el["downfall"]!.ToObject<float>());
-
-                                    if (el["temperature_modifier"] != null)
-                                    {
-                                        tb.AddString("temperature_modifier", el["temperature_modifier"]!.ToString());
-                                    }
-
-                                    using (tb.NewCompound("effects"))
-                                    {
-                                        var effects = el["effects"]!;
-
-                                        tb.AddInt("fog_color", effects["fog_color"]!.ToObject<int>());
-                                        tb.AddInt("water_color", effects["water_color"]!.ToObject<int>());
-                                        tb.AddInt("water_fog_color", effects["water_fog_color"]!.ToObject<int>());
-                                        tb.AddInt("sky_color", effects["sky_color"]!.ToObject<int>());
-
-                                        if (effects["foliage_color"] != null)
-                                        {
-                                            tb.AddInt("foliage_color", effects["foliage_color"]!.ToObject<int>());
-                                        }
-
-                                        if (effects["grass_color"] != null)
-                                        {
-                                            tb.AddInt("grass_color", effects["grass_color"]!.ToObject<int>());
-                                        }
-
-                                        if (effects["grass_color_modifier"] != null)
-                                        {
-                                            tb.AddString("grass_color_modifier",
-                                                effects["grass_color_modifier"]!.ToString());
-                                        }
-
-                                        if (effects["particle"] != null)
-                                        {
-                                            using (tb.NewCompound("particle"))
-                                            {
-                                                var particle = effects["particle"]!;
-                                                tb.AddFloat("probability", particle["probability"]!.ToObject<float>());
-
-                                                using (tb.NewCompound("options"))
-                                                {
-                                                    var options = particle["options"]!;
-                                                    tb.AddString("type", options["type"]!.ToString());
-                                                    // todo add particle options data (not used in vanilla registry)
-                                                    // https://wiki.vg/Registry_Data#Particle_options
-                                                }
-                                            }
-                                        }
-
-                                        var ambientSound = effects["ambient_sound"];
-                                        if (ambientSound != null)
-                                        {
-                                            if (ambientSound.Type == JTokenType.String)
-                                            {
-                                                tb.AddString("ambient_sound", ambientSound.ToString());
-                                            }
-                                            else
-                                            {
-                                                using (tb.NewCompound("ambient_sound"))
-                                                {
-                                                    tb.AddString("sound_id", ambientSound["sound_id"]!.ToString());
-                                                    tb.AddFloat("range", ambientSound["range"]!.ToObject<float>());
-                                                }
-                                            }
-                                        }
-
-                                        var moodSound = effects["mood_sound"];
-                                        if (moodSound != null)
-                                        {
-                                            using (tb.NewCompound("mood_sound"))
-                                            {
-                                                tb.AddString("sound", moodSound["sound"]!.ToString());
-                                                tb.AddInt("tick_delay", moodSound["tick_delay"]!.ToObject<int>());
-                                                tb.AddInt("block_search_extent",
-                                                    moodSound["block_search_extent"]!.ToObject<int>());
-                                                tb.AddDouble("offset", moodSound["offset"]!.ToObject<double>());
-                                            }
-                                        }
-
-                                        var additionsSound = effects["additions_sound"];
-                                        if (additionsSound != null)
-                                        {
-                                            using (tb.NewCompound("additions_sound"))
-                                            {
-                                                tb.AddString("sound", additionsSound["sound"]!.ToString());
-                                                tb.AddDouble("tick_chance",
-                                                    additionsSound["tick_chance"]!.ToObject<double>());
-                                            }
-                                        }
-
-                                        var music = effects["music"];
-                                        if (music != null)
-                                        {
-                                            using (tb.NewCompound("music"))
-                                            {
-                                                tb.AddString("sound", music["sound"]!.ToString());
-                                                tb.AddInt("min_delay", music["min_delay"]!.ToObject<int>());
-                                                tb.AddInt("max_delay", music["max_delay"]!.ToObject<int>());
-                                                tb.AddByte("replace_current_music",
-                                                    music["replace_current_music"]!.ToObject<byte>());
-                                            }
-                                        }
-                                    }
-
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            var compound = tb.Create();
-            _registries.Add(compound);
-        }
-
-        Console.SetOut(initialOut);
     }
 
     public async Task StartServer()
@@ -431,7 +158,7 @@ public class Server
 
                 switch (packetId)
                 {
-                    case 0x00 when client.State == ConnectionState.Handshaking:
+                    case 0x00 when client.State == ConnectionState.Handshaking: // Handshake
                     {
                         Console.WriteLine("Handshake packet");
 
@@ -452,36 +179,7 @@ public class Server
                         client.State = (ConnectionState)nextState;
                         break;
                     }
-                    case 0x03 when client.State == ConnectionState.Handshaking:
-                    {
-                        // Login acknowledged
-                        Console.WriteLine("Login acknowledged packet");
-                        client.State = ConnectionState.Configuration;
-
-                        SendPacket(client,
-                            new PacketBuilder(ClientboundPacketId.PluginMessage)
-                                .AppendString("minecraft:brand")
-                                .AppendBytes("littlecat :3"u8.ToArray())
-                        );
-
-                        SendPacket(client,
-                            new PacketBuilder(ClientboundPacketId.ChangeDifficulty)
-                                .AppendByte(2)
-                                .AppendBoolean(false)
-                        );
-
-                        foreach (var registry in _registries)
-                        {
-                            SendPacket(client,
-                                new PacketBuilder(ClientboundPacketId.RegistryData)
-                                    .AppendNbt(registry)
-                            );
-                        }
-
-                        SendPacket(client, new PacketBuilder(ClientboundPacketId.FinishConfiguration));
-                        break;
-                    }
-                    case 0x00 when client.State == ConnectionState.Status:
+                    case 0x00 when client.State == ConnectionState.Status: // Status request
                     {
                         Console.WriteLine("Status request packet");
 
@@ -523,7 +221,7 @@ public class Server
 
                         break;
                     }
-                    case 0x01 when client.State == ConnectionState.Status:
+                    case 0x01 when client.State == ConnectionState.Status: // Ping request
                     {
                         Console.WriteLine("Ping request packet");
                         var payload = stream.ReadLong();
@@ -536,7 +234,7 @@ public class Server
                         tcpClient.Close();
                         break;
                     }
-                    case 0x00 when client.State == ConnectionState.Login:
+                    case 0x00 when client.State == ConnectionState.Login: // Login start
                     {
                         Console.WriteLine("Login start packet");
 
@@ -559,7 +257,7 @@ public class Server
                         );
                         break;
                     }
-                    case 0x01 when client.State == ConnectionState.Login:
+                    case 0x01 when client.State == ConnectionState.Login: // Encryption response
                     {
                         Console.WriteLine("Encryption response packet");
 
@@ -581,10 +279,10 @@ public class Server
                         var key = new KeyParameter(decryptedSharedSecret);
                         var iv = new ParametersWithIV(key, decryptedSharedSecret);
 
-                        _aesEncrypt = new PaddedBufferedBlockCipher(new CfbBlockCipher(new AesEngine(), 8));
+                        _aesEncrypt = new BufferedBlockCipher(new CfbBlockCipher(new AesEngine(), 8));
                         _aesEncrypt.Init(true, iv);
 
-                        _aesDecrypt = new PaddedBufferedBlockCipher(new CfbBlockCipher(new AesEngine(), 8));
+                        _aesDecrypt = new BufferedBlockCipher(new CfbBlockCipher(new AesEngine(), 8));
                         _aesDecrypt.Init(false, iv);
 
                         client.CipherStream = new CipherStream(client.Stream, _aesDecrypt, _aesEncrypt);
@@ -594,51 +292,122 @@ public class Server
 
                         var userInfo = await MojangApi.GetUserInfo(client.Username!, digest);
                         var uuid = userInfo["id"]?.ToObject<string>();
-
-                        var packetBuilder = new PacketBuilder(ClientboundPacketId.LoginSuccess)
+                        var username = userInfo["name"]?.ToObject<string>();
+                        
+                        var loginSuccessPacket = new PacketBuilder(ClientboundPacketId.LoginSuccess)
                             .AppendUuid(UInt128.Parse(uuid!, NumberStyles.HexNumber))
-                            .AppendString(client.Username!); // todo
+                            .AppendString(username!);
 
                         var numberOfProperties = userInfo["properties"]?.Count() ?? 0;
+                        
+                        loginSuccessPacket.AppendVarInt(numberOfProperties);
 
-                        packetBuilder.AppendVarInt(numberOfProperties);
-
-                        if (numberOfProperties > 0)
+                        foreach (var property in userInfo["properties"]!)
                         {
-                            foreach (var property in userInfo["properties"]!)
+                            loginSuccessPacket
+                                .AppendString(property["name"]!.ToObject<string>()!)
+                                .AppendString(property["value"]!.ToObject<string>()!);
+                            
+                            if (property["signature"] != null)
                             {
-                                packetBuilder
-                                    .AppendString(property["name"]!.ToObject<string>()!)
-                                    .AppendString(property["value"]!.ToObject<string>()!);
-
-                                if (property["signature"] != null)
-                                {
-                                    packetBuilder
-                                        .AppendBoolean(true)
-                                        .AppendString(property["signature"]!.ToObject<string>()!);
-                                }
+                                loginSuccessPacket
+                                    .AppendBoolean(true)
+                                    .AppendString(property["signature"]!.ToObject<string>()!);
+                            }
+                            else
+                            {
+                                loginSuccessPacket.AppendBoolean(false); // not signed
                             }
                         }
 
-                        SendPacket(client, packetBuilder);
+                        loginSuccessPacket.AppendBoolean(true); // should client disconnect if sent invalid packets?
+                                                                 // (yes!, will get stricter in 1.21.2, apparently)
+
+                        SendPacket(client, loginSuccessPacket);
                         break;
                     }
-                    case 0x01 when client.State == ConnectionState.Configuration:
+                    case 0x03 when client.State == ConnectionState.Login: // Login acknowledged
                     {
-                        // Plugin message
-                        Console.WriteLine("Plugin message packet");
+                        Console.WriteLine("Login acknowledged packet");
+
+                        SendPacket(client,
+                            new PacketBuilder(ClientboundPacketId.PluginMessage)
+                                .AppendString("minecraft:brand")
+                                .AppendBytes("littlecat :3"u8.ToArray())
+                        );
+
+                        SendPacket(client,
+                            new PacketBuilder(ClientboundPacketId.FeatureFlags)
+                                .AppendVarInt(1) // feature count
+                                .AppendString("minecraft:vanilla") // dont think this is technically needed
+                        );
+
+                        SendPacket(client,
+                            new PacketBuilder(ClientboundPacketId.KnownPacks)
+                                .AppendVarInt(1) // pack count
+                                .AppendString("minecraft") // namespace
+                                .AppendString("core") // id 
+                                .AppendString("1.21") // version
+                        );
+
+                        client.State = ConnectionState.Configuration;
+                        SendPacket(client, new PacketBuilder(ClientboundPacketId.FinishConfiguration));
+                        break;
+                    }
+                    case 0x00 when client.State == ConnectionState.Configuration: // Client information
+                    {
+                        Console.WriteLine("Client information packet");
+
+                        // todo https://wiki.vg/Protocol#Client_Information_.28configuration.29
+
+                        break;
+                    }
+                    case 0x02 when client.State == ConnectionState.Configuration: // Serverbound plugin message
+                    {
+                        Console.WriteLine("Serverbound plugin message packet");
 
                         var channel = stream.ReadString();
-                        var data = stream.ReadExactly(packetLength - channel.Length);
+                        // plugin messages aren't length prefixed
+                        var data = stream.ReadExactly(packetLength - 1 - channel.Length);
 
                         Console.WriteLine($"Channel: {channel}");
-                        Console.WriteLine($"Data: {BitConverter.ToString(data)}");
+                        Console.WriteLine($"Data: {System.Text.Encoding.Default.GetString(data)}");
+                        break;
+                    }
+                    case 0x03 when client.State == ConnectionState.Configuration: // Acknowledge finish configuration
+                    {
+                        Console.WriteLine("Acknowledge finish configuration packet");
+                        
+                        client.State = ConnectionState.Play;
+                        break;
+                    }
+                    case 0x07 when client.State == ConnectionState.Configuration: // Serverbound known packs
+                    {
+                        Console.WriteLine("Serverbound known packs packet");
+                        
+                        var packCount = stream.ReadVarInt();
+                        for (var i = 0; i < packCount; i++)
+                        {
+                            var namespaceString = stream.ReadString();
+                            var id = stream.ReadString();
+                            var version = stream.ReadString();
+                            
+                            Console.WriteLine($"Namespace: {namespaceString}");
+                            Console.WriteLine($"Id: {id}");
+                            Console.WriteLine($"Version: {version}");
+                            
+                            client.KnownPacks.Add(new Pack
+                            {
+                                Namespace = namespaceString,
+                                Id = id,
+                                Version = version
+                            });
+                        }
 
                         break;
                     }
-                    case 0x02 when client.State == ConnectionState.Configuration:
+                    case 0x9999 /* todo */ when client.State == ConnectionState.Configuration: // Finish configuration
                     {
-                        // Finish configuration
                         Console.WriteLine("Finish configuration packet");
                         client.State = ConnectionState.Play;
 
@@ -695,7 +464,7 @@ public class Server
 
     private void SendPacket(Client client, PacketBuilder packet)
     {
-        Console.WriteLine($"Sending packet {packet.Id} ({packet.Id:X}) to {client.Stream.Socket.RemoteEndPoint}");
+        Console.WriteLine($"Sending packet {packet.Id} ({packet.Id:X}) while in {client.State} to {client.Stream.Socket.RemoteEndPoint}");
 
         var packetBytes = packet.GetBytes();
 
