@@ -9,16 +9,13 @@ public class Handshake : IPacketHandler
     public void HandlePacket(Server.Server server, MinecraftClient client)
     {
         var stream = client.GetStream();
-        
+
         var protocolVersion = stream.ReadVarInt();
         var serverAddress = stream.ReadString();
         var serverPort = stream.ReadUShort();
         var nextState = stream.ReadVarInt();
 
-        Console.WriteLine($"Protocol: {protocolVersion}");
-        Console.WriteLine($"Server address: {serverAddress}");
-        Console.WriteLine($"Server port: {serverPort}");
-        Console.WriteLine($"Next state: {nextState}");
+        Console.WriteLine($"protocol: {protocolVersion}, address: {serverAddress}, port: {serverPort}, nextState: {nextState}");
 
         client.ClientState = nextState switch
         {

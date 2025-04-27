@@ -35,21 +35,21 @@ public static class PacketIds
 public class Server
 {
     private readonly TcpListener _tcpListener = new(IPAddress.Any, 25565);
-
     private readonly Dictionary<(ClientState clientState, int packetId), IPacketHandler> _packetHandlers = new();
+
+    public int MaxPlayers = 20;
 
     public Server()
     {
-        _packetHandlers.Clear();
+        // detect & register all packet handlers
         var assembly = Assembly.GetExecutingAssembly();
-
         var handlerTypes = assembly.GetTypes().Where(t => t.GetCustomAttribute<PacketHandlerAttribute>() != null);
 
         foreach (var type in handlerTypes)
         {
             var attribute = type.GetCustomAttribute<PacketHandlerAttribute>();
             _packetHandlers.Add((attribute!.ClientState, attribute.PacketId), (IPacketHandler)Activator.CreateInstance(type)!);
-            Console.WriteLine($"Registered packet handler {type.Name} for state {attribute.ClientState} & id {attribute.PacketId}");
+            Console.WriteLine($"Registered packet handler {type.Name} for state {attribute.ClientState}, id {attribute.PacketId}");
         }
     }
 

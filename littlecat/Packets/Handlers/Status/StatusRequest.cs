@@ -14,12 +14,12 @@ public class StatusRequest : IPacketHandler
         {
             version = new
             {
-                name = "1.21.5",
-                protocol = 770
+                name = Program.TargetVersion,
+                protocol = Program.TargetProtocol
             },
             players = new
             {
-                max = 100,
+                max = server.MaxPlayers,
                 online = 0,
                 // sample = new[]
                 // {

@@ -11,9 +11,7 @@ public class PingRequest : IPacketHandler
         var stream = client.GetStream();
         var timestamp = stream.ReadLong();
 
-        var packet = new PacketBuilder((int)PacketIds.Clientbound.Status.PongResponse)
-            .AppendLong(timestamp);
-
+        var packet = new PacketBuilder((int)PacketIds.Clientbound.Status.PongResponse).AppendLong(timestamp);
         stream.Write(packet.Build());
     }
 }
