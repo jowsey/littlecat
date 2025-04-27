@@ -43,14 +43,24 @@ public class Server
     {
         // detect & register all packet handlers
         var assembly = Assembly.GetExecutingAssembly();
-        var handlerTypes = assembly.GetTypes().Where(t => t.GetCustomAttribute<PacketHandlerAttribute>() != null);
+        var handlerTypes = assembly
+            .GetTypes()
+            .Where(t => t.IsAssignableTo(typeof(IPacketHandler)) && t.GetCustomAttribute<PacketHandlerAttribute>() != null)
+            .OrderBy(t => t.GetCustomAttribute<PacketHandlerAttribute>()!.ClientState)
+            .ThenBy(t => t.GetCustomAttribute<PacketHandlerAttribute>()!.PacketId)
+            .ToList();
 
+        var longestTypeName = handlerTypes.Max(t => t.Name.Length);
+
+        Console.WriteLine("Registering packet handlers for:");
         foreach (var type in handlerTypes)
         {
             var attribute = type.GetCustomAttribute<PacketHandlerAttribute>();
             _packetHandlers.Add((attribute!.ClientState, attribute.PacketId), (IPacketHandler)Activator.CreateInstance(type)!);
-            Console.WriteLine($"Registered packet handler {type.Name} for state {attribute.ClientState}, id {attribute.PacketId}");
+            Console.WriteLine($" - {type.Name.PadRight(longestTypeName + 1)}: 0x{attribute.PacketId:x2} @ {attribute.ClientState}");
         }
+
+        Console.WriteLine();
     }
 
     public async void Start()
@@ -84,7 +94,7 @@ public class Server
             var length = client.GetStream().ReadVarInt();
             var id = client.GetStream().ReadVarInt();
 
-            Console.WriteLine($"Got packet with id {id} and length {length}");
+            Console.WriteLine($"[{client.ClientState}] Packet with id {id:x2} and length {length}");
 
             if (_packetHandlers.TryGetValue((client.ClientState, id), out var handler))
             {
@@ -92,7 +102,7 @@ public class Server
             }
             else
             {
-                Console.WriteLine($"No handler registered for packet with id {id} in state {client.ClientState}!");
+                Console.WriteLine("No handler registered! Discarding.");
                 client.GetStream().ReadExactly(new byte[length], 0, length); // discard the packet so it doesn't affect the next one
             }
         }

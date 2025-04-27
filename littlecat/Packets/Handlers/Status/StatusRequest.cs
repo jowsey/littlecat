@@ -41,5 +41,7 @@ public class StatusRequest : IPacketHandler
 
         var packet = new PacketBuilder((int)PacketIds.Clientbound.Status.StatusResponse).AppendString(statusResponse);
         client.GetStream().Write(packet.Build());
+
+        Console.WriteLine("Sent status response.");
     }
 }

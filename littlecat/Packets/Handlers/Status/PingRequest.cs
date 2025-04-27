@@ -8,10 +8,14 @@ public class PingRequest : IPacketHandler
 {
     public void HandlePacket(Server.Server server, MinecraftClient client)
     {
+        Console.WriteLine("Got ping request.");
+
         var stream = client.GetStream();
         var timestamp = stream.ReadLong();
 
         var packet = new PacketBuilder((int)PacketIds.Clientbound.Status.PongResponse).AppendLong(timestamp);
         stream.Write(packet.Build());
+
+        Console.WriteLine("Sent ping response.");
     }
 }
