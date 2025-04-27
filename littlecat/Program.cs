@@ -2,8 +2,11 @@
 
 public static class Program
 {
-    public static void Main()
+    public static async Task Main()
     {
-        Console.WriteLine("hello littlecat2");
+        var server = new Server.Server();
+        server.Start();
+        await Task.Delay(-1);
+        server.Stop();
     }
 }
