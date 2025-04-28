@@ -7,4 +7,5 @@ minecraft server software written in C#
 
 features:
 - server list ping
+- encryption
 - that's it lol
