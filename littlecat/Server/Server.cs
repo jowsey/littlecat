@@ -1,6 +1,7 @@
 ﻿using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
+using System.Security.Cryptography;
 using littlecat.Packets.Handlers;
 using littlecat.Utils;
 
@@ -20,6 +21,13 @@ public static class PacketIds
             StatusRequest = 0x00,
             PingRequest = 0x01
         }
+
+        public enum Login
+        {
+            LoginStart = 0x00,
+            EncryptionResponse = 0x01,
+            LoginAcknowledged = 0x03
+        }
     }
 
     public static class Clientbound
@@ -28,6 +36,12 @@ public static class PacketIds
         {
             StatusResponse = 0x00,
             PongResponse = 0x01
+        }
+
+        public enum Login
+        {
+            EncryptionRequest = 0x01,
+            LoginSuccess = 0x02
         }
     }
 }
@@ -39,9 +53,20 @@ public class Server
 
     public int MaxPlayers = 20;
 
+    public byte[] PublicKey { get; }
+    public RSAParameters PrivateKey { get; }
+
+    public HttpClient HttpClient { get; } = new();
+
     public Server()
     {
+        Console.WriteLine("Generating RSA keypair...");
+        using var rsa = RSA.Create(1024);
+        PublicKey = rsa.ExportSubjectPublicKeyInfo();
+        PrivateKey = rsa.ExportParameters(true);
+
         // detect & register all packet handlers
+        Console.WriteLine("Registering packet handlers for:");
         var assembly = Assembly.GetExecutingAssembly();
         var handlerTypes = assembly
             .GetTypes()
@@ -51,13 +76,11 @@ public class Server
             .ToList();
 
         var longestTypeName = handlerTypes.Max(t => t.Name.Length);
-
-        Console.WriteLine("Registering packet handlers for:");
         foreach (var type in handlerTypes)
         {
             var attribute = type.GetCustomAttribute<PacketHandlerAttribute>();
             _packetHandlers.Add((attribute!.ClientState, attribute.PacketId), (IPacketHandler)Activator.CreateInstance(type)!);
-            Console.WriteLine($" - {type.Name.PadRight(longestTypeName + 1)}: 0x{attribute.PacketId:x2} @ {attribute.ClientState}");
+            Console.WriteLine($" - {type.Name.PadRight(longestTypeName + 1)} 0x{attribute.PacketId:x2} @ {attribute.ClientState}");
         }
 
         Console.WriteLine();

@@ -6,7 +6,7 @@ namespace littlecat.Packets.Handlers.Status;
 [PacketHandler(ClientState.Status, (int)PacketIds.Serverbound.Status.PingRequest)]
 public class PingRequest : IPacketHandler
 {
-    public void HandlePacket(Server.Server server, MinecraftClient client)
+    public Task HandlePacket(Server.Server server, MinecraftClient client)
     {
         Console.WriteLine("Got ping request.");
 
@@ -15,7 +15,9 @@ public class PingRequest : IPacketHandler
 
         var packet = new PacketBuilder((int)PacketIds.Clientbound.Status.PongResponse).AppendLong(timestamp);
         stream.Write(packet.Build());
-
+        
         Console.WriteLine("Sent ping response.");
+        
+        return Task.CompletedTask;
     }
 }

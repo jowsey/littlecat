@@ -17,6 +17,18 @@ public class PacketBuilder
         return this;
     }
 
+    public PacketBuilder AppendLengthPrefixedBytes(byte[] bytes)
+    {
+        _stream.WriteLengthPrefixedBytes(bytes);
+        return this;
+    }
+
+    public PacketBuilder AppendBoolean(bool value)
+    {
+        _stream.WriteBoolean(value);
+        return this;
+    }
+    
     public PacketBuilder AppendString(string value)
     {
         _stream.WriteString(value);
@@ -26,6 +38,12 @@ public class PacketBuilder
     public PacketBuilder AppendLong(long value)
     {
         _stream.WriteLong(value);
+        return this;
+    }
+
+    public PacketBuilder AppendUuid(UInt128 value)
+    {
+        _stream.WriteUuid(value);
         return this;
     }
 

@@ -6,7 +6,7 @@ namespace littlecat.Packets.Handlers.Status;
 [PacketHandler(ClientState.Status, (int)PacketIds.Serverbound.Status.StatusRequest)]
 public class StatusRequest : IPacketHandler
 {
-    public void HandlePacket(Server.Server server, MinecraftClient client)
+    public Task HandlePacket(Server.Server server, MinecraftClient client)
     {
         Console.WriteLine("Got status request.");
 
@@ -43,5 +43,7 @@ public class StatusRequest : IPacketHandler
         client.GetStream().Write(packet.Build());
 
         Console.WriteLine("Sent status response.");
+        
+        return Task.CompletedTask;
     }
 }

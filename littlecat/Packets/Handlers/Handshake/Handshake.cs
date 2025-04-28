@@ -6,7 +6,7 @@ namespace littlecat.Packets.Handlers.Handshake;
 [PacketHandler(ClientState.Handshake, (int)PacketIds.Serverbound.Handshake.Handshake)]
 public class Handshake : IPacketHandler
 {
-    public void HandlePacket(Server.Server server, MinecraftClient client)
+    public Task HandlePacket(Server.Server server, MinecraftClient client)
     {
         var stream = client.GetStream();
 
@@ -24,5 +24,7 @@ public class Handshake : IPacketHandler
             3 => ClientState.Transfer,
             _ => throw new Exception($"Invalid next state {nextState} from handshake")
         };
+        
+        return Task.CompletedTask;
     }
 }

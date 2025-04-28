@@ -103,12 +103,17 @@ public static class StreamUtils
         stream.Write(bytes);
     }
 
+    public static void WriteBoolean(this Stream stream, bool value) => stream.WriteByte((byte)(value ? 1 : 0));
+
     public static string ReadString(this Stream stream) => Encoding.UTF8.GetString(stream.ReadLengthPrefixedBytes());
     public static void WriteString(this Stream stream, string value) => stream.WriteLengthPrefixedBytes(Encoding.UTF8.GetBytes(value));
 
-    public static ushort ReadUShort(this Stream stream) => BitConverter.ToUInt16(ReadBigEndianBytes(stream, 2), 0);
+    public static ushort ReadUShort(this Stream stream) => BitConverter.ToUInt16(stream.ReadBigEndianBytes(2), 0);
     public static void WriteUShort(this Stream stream, ushort value) => stream.WriteBigEndianBytes(BitConverter.GetBytes(value));
 
-    public static long ReadLong(this Stream stream) => BitConverter.ToInt64(ReadBigEndianBytes(stream, 8), 0);
+    public static long ReadLong(this Stream stream) => BitConverter.ToInt64(stream.ReadBigEndianBytes(8), 0);
     public static void WriteLong(this Stream stream, long value) => stream.WriteBigEndianBytes(BitConverter.GetBytes(value));
+
+    public static UInt128 ReadUuid(this Stream stream) => BitConverter.ToUInt128(stream.ReadBigEndianBytes(16));
+    public static void WriteUuid(this Stream stream, UInt128 value) => stream.WriteBigEndianBytes(BitConverter.GetBytes(value));
 }
