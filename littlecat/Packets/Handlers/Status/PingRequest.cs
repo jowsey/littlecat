@@ -17,7 +17,8 @@ public class PingRequest : IPacketHandler
         stream.Write(packet.Build());
         
         Console.WriteLine("Sent ping response.");
-        
+
+        client.Dispose(); // status ping sequence finished
         return Task.CompletedTask;
     }
 }

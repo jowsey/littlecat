@@ -108,29 +108,29 @@ public class Server
         Console.WriteLine("Server stopped");
     }
 
-    private void HandleClient(MinecraftClient client)
+    private void HandleClient(MinecraftClient mcClient)
     {
-        using var stream = client.GetStream();
-
-        while (true)
+        while (mcClient.TcpClient.Connected)
         {
-            var length = client.GetStream().ReadVarInt();
-            var id = client.GetStream().ReadVarInt();
+            var stream = mcClient.GetStream(); // get it per-packet because encryption could've changed
+            var length = stream.ReadVarInt();
+            var id = stream.ReadVarInt(out var idLength);
+            var dataLength = length - idLength;
 
-            Console.WriteLine($"[{client.ClientState}] Packet with id {id:x2} and length {length}");
+            Console.WriteLine($"[{mcClient.ClientState}] Packet with id {id:x2} and length {length}");
 
-            if (_packetHandlers.TryGetValue((client.ClientState, id), out var handler))
+            if (_packetHandlers.TryGetValue((mcClient.ClientState, id), out var handler))
             {
-                handler.HandlePacket(this, client);
+                handler.HandlePacket(this, mcClient);
             }
             else
             {
                 Console.WriteLine("No handler registered! Discarding.");
-                client.GetStream().ReadExactly(new byte[length], 0, length); // discard the packet so it doesn't affect the next one
+                stream.ReadExactly(new byte[dataLength], 0, dataLength); // discard the packet so it doesn't affect the next one
             }
         }
 
-        client.Close();
+        mcClient.Dispose();
         Console.WriteLine("Client disconnected");
     }
 }

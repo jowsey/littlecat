@@ -35,7 +35,7 @@ public class EncryptionResponse : IPacketHandler
         if (!decryptedVerifyToken.SequenceEqual(client.VerifyToken))
         {
             Console.WriteLine("Invalid verify token! Closing connection.");
-            client.Close();
+            client.Dispose();
             return;
         }
 

@@ -9,6 +9,7 @@ public class LoginAcknowledged : IPacketHandler
     {
         Console.WriteLine("Got login acknowledged.");
         client.ClientState = ClientState.Configuration;
+        
         return Task.CompletedTask;
     }
 }

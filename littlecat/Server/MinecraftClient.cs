@@ -13,7 +13,7 @@ public enum ClientState
     Play
 }
 
-public class MinecraftClient(TcpClient tcpClient)
+public class MinecraftClient(TcpClient tcpClient) : IDisposable
 {
     public TcpClient TcpClient { get; } = tcpClient;
 
@@ -30,9 +30,11 @@ public class MinecraftClient(TcpClient tcpClient)
 
     public Stream GetStream() => EncryptionEnabled ? EncryptedStream! : TcpClient.GetStream();
 
-    public void Close()
+    // Close the connection
+    public void Dispose()
     {
-        EncryptedStream?.Close();
-        TcpClient.Close();
+        EncryptedStream?.Dispose();
+        TcpClient.Dispose();
+        GC.SuppressFinalize(this);
     }
 }

@@ -7,14 +7,19 @@ public static class StreamUtils
     private const int SEGMENT_BITS = 0b01111111;
     private const int CONTINUE_BIT = 0b10000000;
 
-    public static int ReadVarInt(this Stream stream)
+    public static int ReadVarInt(this Stream stream) => ReadVarInt(stream, out _);
+
+    public static int ReadVarInt(this Stream stream, out int size)
     {
         var value = 0;
         var position = 0;
+        size = 0;
 
         while (true)
         {
             var currentByte = (byte)stream.ReadByte();
+            size++;
+
             value |= (currentByte & SEGMENT_BITS) << position;
             if ((currentByte & CONTINUE_BIT) == 0) break;
 
@@ -26,14 +31,19 @@ public static class StreamUtils
         return value;
     }
 
-    public static long ReadVarLong(this Stream stream)
+    public static long ReadVarLong(this Stream stream) => ReadVarLong(stream, out _);
+
+    public static long ReadVarLong(this Stream stream, out int size)
     {
         var value = 0L;
         var position = 0;
+        size = 0;
 
         while (true)
         {
             var currentByte = (byte)stream.ReadByte();
+            size++;
+
             value |= (long)(currentByte & SEGMENT_BITS) << position;
             if ((currentByte & CONTINUE_BIT) == 0) break;
 
