@@ -6,7 +6,7 @@ namespace littlecat.Packets.Handlers.Login;
 [PacketHandler(ClientState.Login, (int)PacketIds.Serverbound.Login.LoginStart)]
 public class LoginStart : IPacketHandler
 {
-    public Task HandlePacket(Server.Server server, MinecraftClient client)
+    public Task HandlePacket(PacketInfo packet, Server.Server server, MinecraftClient client)
     {
         Console.WriteLine("Got login start.");
 

@@ -14,7 +14,7 @@ namespace littlecat.Packets.Handlers.Login;
 [PacketHandler(ClientState.Login, (int)PacketIds.Serverbound.Login.EncryptionResponse)]
 public class EncryptionResponse : IPacketHandler
 {
-    public async Task HandlePacket(Server.Server server, MinecraftClient client)
+    public async Task HandlePacket(PacketInfo packet, Server.Server server, MinecraftClient client)
     {
         Console.WriteLine("Got encryption response.");
 
@@ -74,21 +74,21 @@ public class EncryptionResponse : IPacketHandler
         var properties = json["properties"]!;
         Console.WriteLine($"Got name {name} and UUID {uuid} from Mojang.");
 
-        var packet = new PacketBuilder((int)PacketIds.Clientbound.Login.LoginSuccess)
+        var loginSuccessPacket = new PacketBuilder((int)PacketIds.Clientbound.Login.LoginSuccess)
             .AppendUuid(UInt128.Parse(uuid, NumberStyles.HexNumber))
             .AppendString(name);
 
         var propertyCount = properties.Count();
-        packet.AppendVarInt(propertyCount);
+        loginSuccessPacket.AppendVarInt(propertyCount);
         foreach (var property in properties)
         {
-            packet.AppendString(property["name"]!.ToString());
-            packet.AppendString(property["value"]!.ToString());
-            packet.AppendBoolean(true);
-            packet.AppendString(property["signature"]!.ToString()); // todo don't blindly assume we'll receive all this lol
+            loginSuccessPacket.AppendString(property["name"]!.ToString());
+            loginSuccessPacket.AppendString(property["value"]!.ToString());
+            loginSuccessPacket.AppendBoolean(true);
+            loginSuccessPacket.AppendString(property["signature"]!.ToString()); // todo don't blindly assume we'll receive all this lol
         }
 
-        client.GetStream().Write(packet.Build());
+        client.GetStream().Write(loginSuccessPacket.Build());
 
         Console.WriteLine("Sent login success.");
     }

@@ -6,7 +6,7 @@ namespace littlecat.Packets.Handlers.Handshake;
 [PacketHandler(ClientState.Handshake, (int)PacketIds.Serverbound.Handshake.Handshake)]
 public class Handshake : IPacketHandler
 {
-    public Task HandlePacket(Server.Server server, MinecraftClient client)
+    public Task HandlePacket(PacketInfo packet, Server.Server server, MinecraftClient client)
     {
         var stream = client.GetStream();
 

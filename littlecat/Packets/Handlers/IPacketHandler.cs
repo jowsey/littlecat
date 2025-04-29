@@ -3,6 +3,6 @@
 namespace littlecat.Packets.Handlers;
 
 public interface IPacketHandler
-{ 
-    Task HandlePacket(Server.Server server, MinecraftClient client);
+{
+    Task HandlePacket(PacketInfo packet, Server.Server server, MinecraftClient client);
 }

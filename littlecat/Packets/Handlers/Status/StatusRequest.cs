@@ -6,7 +6,7 @@ namespace littlecat.Packets.Handlers.Status;
 [PacketHandler(ClientState.Status, (int)PacketIds.Serverbound.Status.StatusRequest)]
 public class StatusRequest : IPacketHandler
 {
-    public Task HandlePacket(Server.Server server, MinecraftClient client)
+    public Task HandlePacket(PacketInfo packet, Server.Server server, MinecraftClient client)
     {
         Console.WriteLine("Got status request.");
 
@@ -39,8 +39,8 @@ public class StatusRequest : IPacketHandler
             enforcesSecureChat = false
         });
 
-        var packet = new PacketBuilder((int)PacketIds.Clientbound.Status.StatusResponse).AppendString(statusResponse);
-        client.GetStream().Write(packet.Build());
+        var statusResponsePacket = new PacketBuilder((int)PacketIds.Clientbound.Status.StatusResponse).AppendString(statusResponse);
+        client.GetStream().Write(statusResponsePacket.Build());
 
         Console.WriteLine("Sent status response.");
         

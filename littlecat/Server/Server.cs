@@ -2,6 +2,7 @@
 using System.Net.Sockets;
 using System.Reflection;
 using System.Security.Cryptography;
+using littlecat.Packets;
 using littlecat.Packets.Handlers;
 using littlecat.Utils;
 
@@ -27,6 +28,12 @@ public static class PacketIds
             LoginStart = 0x00,
             EncryptionResponse = 0x01,
             LoginAcknowledged = 0x03
+        }
+
+        public enum Configuration
+        {
+            ClientInformation = 0x00,
+            PluginMessage = 0x02,
         }
     }
 
@@ -117,11 +124,16 @@ public class Server
             var id = stream.ReadVarInt(out var idLength);
             var dataLength = length - idLength;
 
-            Console.WriteLine($"[{mcClient.ClientState}] Packet with id {id:x2} and length {length}");
+            Console.WriteLine($"[{mcClient.ClientState}] Packet with id {id:x2} and length {length} ({idLength}+{dataLength})");
 
             if (_packetHandlers.TryGetValue((mcClient.ClientState, id), out var handler))
             {
-                handler.HandlePacket(this, mcClient);
+                var packetInfo = new PacketInfo
+                {
+                    DataLength = dataLength,
+                };
+                
+                handler.HandlePacket(packetInfo, this, mcClient);
             }
             else
             {

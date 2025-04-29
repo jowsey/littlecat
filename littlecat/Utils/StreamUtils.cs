@@ -84,10 +84,13 @@ public static class StreamUtils
             value >>>= 7;
         }
     }
-
-    public static byte[] ReadLengthPrefixedBytes(this Stream stream)
+    
+    public static byte[] ReadLengthPrefixedBytes(this Stream stream) => ReadLengthPrefixedBytes(stream, out _);
+    public static byte[] ReadLengthPrefixedBytes(this Stream stream, out int size)
     {
         var length = stream.ReadVarInt();
+        size = length + 1; // +1 for the length itself
+        
         var bytes = new byte[length];
         stream.ReadExactly(bytes, 0, length);
         return bytes;
@@ -112,11 +115,16 @@ public static class StreamUtils
         if (BitConverter.IsLittleEndian) Array.Reverse(bytes);
         stream.Write(bytes);
     }
-
+    
+    public static bool ReadBoolean(this Stream stream) => stream.ReadByte() != 0;
     public static void WriteBoolean(this Stream stream, bool value) => stream.WriteByte((byte)(value ? 1 : 0));
-
-    public static string ReadString(this Stream stream) => Encoding.UTF8.GetString(stream.ReadLengthPrefixedBytes());
+    
+    public static string ReadString(this Stream stream) => ReadString(stream, out _);
+    public static string ReadString(this Stream stream, out int size) => Encoding.UTF8.GetString(stream.ReadLengthPrefixedBytes(out size));
     public static void WriteString(this Stream stream, string value) => stream.WriteLengthPrefixedBytes(Encoding.UTF8.GetBytes(value));
+    
+    public static sbyte ReadSByte(this Stream stream) => (sbyte)stream.ReadByte();
+    public static void WriteSByte(this Stream stream, sbyte value) => stream.WriteByte((byte)value);
 
     public static ushort ReadUShort(this Stream stream) => BitConverter.ToUInt16(stream.ReadBigEndianBytes(2), 0);
     public static void WriteUShort(this Stream stream, ushort value) => stream.WriteBigEndianBytes(BitConverter.GetBytes(value));
