@@ -8,51 +8,6 @@ using littlecat.Utils;
 
 namespace littlecat.Server;
 
-public static class PacketIds
-{
-    public static class Serverbound
-    {
-        public enum Handshake
-        {
-            Handshake = 0x00
-        }
-
-        public enum Status
-        {
-            StatusRequest = 0x00,
-            PingRequest = 0x01
-        }
-
-        public enum Login
-        {
-            LoginStart = 0x00,
-            EncryptionResponse = 0x01,
-            LoginAcknowledged = 0x03
-        }
-
-        public enum Configuration
-        {
-            ClientInformation = 0x00,
-            PluginMessage = 0x02,
-        }
-    }
-
-    public static class Clientbound
-    {
-        public enum Status
-        {
-            StatusResponse = 0x00,
-            PongResponse = 0x01
-        }
-
-        public enum Login
-        {
-            EncryptionRequest = 0x01,
-            LoginSuccess = 0x02
-        }
-    }
-}
-
 public class Server
 {
     private readonly TcpListener _tcpListener = new(IPAddress.Any, 25565);
@@ -138,7 +93,7 @@ public class Server
             else
             {
                 Console.WriteLine("No handler registered! Discarding.");
-                stream.ReadExactly(new byte[dataLength], 0, dataLength); // discard the packet so it doesn't affect the next one
+                stream.ReadExactly(new byte[dataLength]); // discard the packet so it doesn't affect the next one
             }
         }
 

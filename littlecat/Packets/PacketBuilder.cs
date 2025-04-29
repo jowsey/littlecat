@@ -2,6 +2,59 @@
 
 namespace littlecat.Packets;
 
+public static class PacketIds
+{
+    public static class Serverbound
+    {
+        public enum Handshake
+        {
+            Handshake = 0x00
+        }
+
+        public enum Status
+        {
+            StatusRequest = 0x00,
+            PingRequest = 0x01
+        }
+
+        public enum Login
+        {
+            LoginStart = 0x00,
+            EncryptionResponse = 0x01,
+            LoginAcknowledged = 0x03
+        }
+
+        public enum Configuration
+        {
+            ClientInformation = 0x00,
+            PluginMessage = 0x02,
+            KnownPacks = 0x07
+        }
+    }
+
+    public static class Clientbound
+    {
+        public enum Status
+        {
+            StatusResponse = 0x00,
+            PongResponse = 0x01
+        }
+
+        public enum Login
+        {
+            EncryptionRequest = 0x01,
+            LoginSuccess = 0x02
+        }
+
+        public enum Configuration
+        {
+            PluginMessage = 0x01,
+            FeatureFlags = 0x0C,
+            KnownPacks = 0x0E,
+        }
+    }
+}
+
 public class PacketBuilder
 {
     private readonly MemoryStream _stream = new();
@@ -14,6 +67,12 @@ public class PacketBuilder
     public PacketBuilder AppendVarInt(int value)
     {
         _stream.WriteVarInt(value);
+        return this;
+    }
+
+    public PacketBuilder AppendBytes(byte[] bytes)
+    {
+        _stream.Write(bytes);
         return this;
     }
 

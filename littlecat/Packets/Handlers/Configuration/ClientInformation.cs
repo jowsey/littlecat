@@ -10,7 +10,7 @@ public class ClientInformation : IPacketHandler
     {
         Console.WriteLine("Got client information.");
         var stream = client.GetStream();
-        
+
         var locale = stream.ReadString();
         var viewDistance = stream.ReadSByte();
         var chatMode = stream.ReadVarInt();
@@ -20,7 +20,7 @@ public class ClientInformation : IPacketHandler
         var enableTextFiltering = stream.ReadBoolean();
         var enableServerListing = stream.ReadBoolean();
         var particleStatus = stream.ReadVarInt();
-        
+
         Console.WriteLine($"Locale: {locale}");
         Console.WriteLine($"View distance: {viewDistance}");
         Console.WriteLine($"Chat mode: {chatMode}");
@@ -31,6 +31,17 @@ public class ClientInformation : IPacketHandler
         Console.WriteLine($"Enable server listing: {enableServerListing}");
         Console.WriteLine($"Particle status: {particleStatus}");
 
+        var featureFlagsPacket = new PacketBuilder((int)PacketIds.Clientbound.Configuration.FeatureFlags)
+            .AppendVarInt(1)
+            .AppendString("minecraft:vanilla");
+        client.GetStream().Write(featureFlagsPacket.Build());
+        
+        var knownPacksPacket = new PacketBuilder((int)PacketIds.Clientbound.Configuration.KnownPacks)
+            .AppendVarInt(1)
+            .AppendString("minecraft")
+            .AppendString("core")
+            .AppendString(Program.TargetVersion);
+        client.GetStream().Write(knownPacksPacket.Build());
         return Task.CompletedTask;
     }
 }

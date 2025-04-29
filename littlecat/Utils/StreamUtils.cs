@@ -92,7 +92,7 @@ public static class StreamUtils
         size = length + 1; // +1 for the length itself
         
         var bytes = new byte[length];
-        stream.ReadExactly(bytes, 0, length);
+        stream.ReadExactly(bytes);
         return bytes;
     }
 
@@ -105,7 +105,7 @@ public static class StreamUtils
     private static byte[] ReadBigEndianBytes(this Stream stream, int length)
     {
         var bytes = new byte[length];
-        stream.ReadExactly(bytes, 0, length);
+        stream.ReadExactly(bytes);
         if (BitConverter.IsLittleEndian) Array.Reverse(bytes);
         return bytes;
     }

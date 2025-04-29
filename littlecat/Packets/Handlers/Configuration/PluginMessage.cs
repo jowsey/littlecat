@@ -16,7 +16,7 @@ public class PluginMessage : IPacketHandler
         var dataLength = packet.DataLength - channelLength;
         
         var data = new byte[dataLength];
-        stream.ReadExactly(data, 0, dataLength);
+        stream.ReadExactly(data);
 
         Console.WriteLine($"Got plugin message on channel {channel}: {Encoding.UTF8.GetString(data)}");
         return Task.CompletedTask;
